@@ -5,14 +5,59 @@ Built with **Python 3 · PyQt6 · pyqtgraph**, runs on **Windows · Linux · mac
 
 ---
 
-## Quick start
+## Running from source
 
 ```bash
+git clone https://github.com/AlexShateljuk/isodaq.git
+cd isodaq
 pip install -r requirements.txt
 python main.py
 ```
 
 Requirements: Python 3.10+, see `requirements.txt` for package versions.
+
+---
+
+## Pre-built binaries
+
+Download the latest release for your platform from the
+[Releases](https://github.com/AlexShateljuk/isodaq/releases) page.
+
+| Platform | File | How to run |
+|----------|------|-----------|
+| Windows 10/11 x64 | `IsoDAQ-Studio-windows-x64.zip` | Extract → run `IsoDAQ Studio.exe` |
+| Linux x64 | `IsoDAQ-Studio-linux-x64.tar.gz` | Extract → `chmod +x "IsoDAQ Studio"` → run `./IsoDAQ\ Studio` |
+| macOS 13+ x64 | `IsoDAQ-Studio-macos-x64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
+
+> **Linux note:** if the app does not start, install the Qt platform plugin dependencies:
+> ```bash
+> sudo apt-get install libxcb-cursor0 libxcb-xinerama0 libegl1
+> ```
+
+---
+
+## Building from source
+
+Install PyInstaller, then run:
+
+```bash
+pip install pyinstaller>=6.0
+pyinstaller isodaq.spec --noconfirm
+```
+
+The built application is placed in `dist/IsoDAQ Studio/`.
+
+### Automated release builds (GitHub Actions)
+
+Pushing a version tag triggers the CI workflow that builds for all three
+platforms and publishes a GitHub Release with attached binaries:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow file is at [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ---
 

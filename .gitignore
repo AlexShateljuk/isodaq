@@ -20,6 +20,11 @@ env/
 .vscode/
 *.iml
 
+# Build output
+dist/
+build/
+*.spec.bak
+
 # Session files
 *.csv
 *.db
