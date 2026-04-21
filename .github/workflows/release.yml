@@ -20,7 +20,7 @@ jobs:
           - os: ubuntu-22.04
             artifact: IsoDAQ-Studio-linux-x64.tar.gz
             dist_name: IsoDAQ Studio
-          - os: macos-13
+          - os: macos-latest
             artifact: IsoDAQ-Studio-macos-x64.zip
             dist_name: IsoDAQ Studio.app
 
