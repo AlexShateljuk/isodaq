@@ -5,7 +5,7 @@ Supported trigger types (set via prefix in the text field):
 
   Brownout Detector               ← [contains] default, case-insensitive
   [regex]  hard fault|HardFault
-  [python] lambda line: 'ERR' in line and int(line.split('=')[1]) > 100
+  [python] lambda line: 'err' in line.lower() and int(line.split('=')[1]) > 100
 
 Each trigger can fire any combination of actions:
   action_flash  — highlight line in terminal
@@ -36,6 +36,10 @@ class Trigger:
     action_sound:  bool = False
     action_pause:  bool = False
     action_resume: bool = False
+
+    # Notifications
+    notify_url:     str = ""   # webhook URL or Telegram sendMessage URL
+    notify_tg_chat: str = ""   # Telegram chat_id (ignored for generic webhooks)
 
     hit_count: int = 0
 
@@ -132,6 +136,10 @@ class TriggerEngine:
                 for cb in self._callbacks:
                     try: cb(t, line, ts)
                     except Exception: pass
+                if t.notify_url:
+                    from core.notifier import send_notification
+                    send_notification(t.notify_url, t.notify_tg_chat,
+                                      t.name, line, ts)
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 
@@ -145,6 +153,8 @@ class TriggerEngine:
                 "action_sound":  t.action_sound,
                 "action_pause":  t.action_pause,
                 "action_resume": t.action_resume,
+                "notify_url":     t.notify_url,
+                "notify_tg_chat": t.notify_tg_chat,
             } for t in self._triggers]
 
     def from_dict_list(self, data: list[dict]):
@@ -159,6 +169,8 @@ class TriggerEngine:
                 action_sound=d.get("action_sound",False),
                 action_pause=d.get("action_pause",False),
                 action_resume=d.get("action_resume",False),
+                notify_url=d.get("notify_url",""),
+                notify_tg_chat=d.get("notify_tg_chat",""),
             )
             self.add_trigger(t)
 

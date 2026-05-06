@@ -77,7 +77,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon="ui/resources/icon.ico",   # uncomment when icon is added
+    icon="ui/resources/icon.ico",
 )
 
 coll = COLLECT(
@@ -96,7 +96,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="IsoDAQ Studio.app",
-        # icon="ui/resources/icon.icns",
+        icon="ui/resources/icon.icns",
         bundle_identifier="com.esomtech.isodaq-studio",
         info_plist={
             "NSHighResolutionCapable": True,

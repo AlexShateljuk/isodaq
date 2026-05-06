@@ -85,6 +85,33 @@ class ChannelConfig:
 class DataParser:
     def __init__(self):
         self._channels: list[ChannelConfig] = []
+        self._snippet: str = ""
+        self._snippet_fn = None
+
+    # ── Custom snippet ────────────────────────────────────────────────────────
+
+    def set_snippet(self, code: str) -> str | None:
+        """Compile snippet. Returns error string on failure, None on success."""
+        code = code.strip()
+        if not code:
+            self._snippet = ""
+            self._snippet_fn = None
+            return None
+        try:
+            indented = "\n".join("    " + ln for ln in code.splitlines())
+            src = f"def _fn(line):\n{indented}\n"
+            ns: dict = {}
+            exec(compile(src, "<snippet>", "exec"), ns)  # noqa: S102
+            self._snippet = code
+            self._snippet_fn = ns["_fn"]
+            return None
+        except SyntaxError as e:
+            return f"Syntax error line {e.lineno}: {e.msg}"
+        except Exception as e:
+            return str(e)
+
+    def get_snippet(self) -> str:
+        return self._snippet
 
     # ── Channel management ────────────────────────────────────────────────────
 
@@ -107,22 +134,37 @@ class DataParser:
 
         Returns {channel_name: scaled_value}. Empty dict if nothing matched.
         """
-        if not self._channels:
-            return {}
-        json_obj = _try_json(line)
         result: dict[str, float] = {}
-        for ch in self._channels:
-            if not ch.enabled:
-                continue
-            if ch.prefix and ch.prefix not in line:
-                continue
-            raw = None
-            if json_obj is not None:
-                raw = _from_json(json_obj, ch.key)
-            if raw is None:
-                raw = _from_kv(line, ch.key, ch.unit)
-            if raw is not None:
-                result[ch.name] = raw * ch.scale + ch.offset
+
+        # Built-in key/value channels
+        if self._channels:
+            json_obj = _try_json(line)
+            for ch in self._channels:
+                if not ch.enabled:
+                    continue
+                if ch.prefix and ch.prefix not in line:
+                    continue
+                raw = None
+                if json_obj is not None:
+                    raw = _from_json(json_obj, ch.key)
+                if raw is None:
+                    raw = _from_kv(line, ch.key, ch.unit)
+                if raw is not None:
+                    result[ch.name] = raw * ch.scale + ch.offset
+
+        # Custom snippet (merges on top; snippet values win on name collision)
+        if self._snippet_fn is not None:
+            try:
+                extra = self._snippet_fn(line)
+                if isinstance(extra, dict):
+                    for k, v in extra.items():
+                        try:
+                            result[str(k)] = float(v)
+                        except (TypeError, ValueError):
+                            pass
+            except Exception:
+                pass
+
         return result
 
     # ── Persistence ───────────────────────────────────────────────────────────

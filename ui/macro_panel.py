@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from ui.themes import tint_titlebar
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -195,6 +196,7 @@ class MacroPanel(QWidget):
     def _new_macro(self) -> None:
         m = Macro("New macro", steps=[MacroStep("AT+VERSION?")])
         dlg = MacroEditorDialog(m, self)
+        tint_titlebar(dlg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._macros.append(dlg.result_macro())
             self._rebuild()
@@ -212,6 +214,7 @@ class MacroPanel(QWidget):
 
     def _on_edit_req(self, row: _MacroRow) -> None:
         dlg = MacroEditorDialog(copy.deepcopy(row.macro), self)
+        tint_titlebar(dlg)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             idx = self._rows.index(row)
             self._macros[idx] = dlg.result_macro()

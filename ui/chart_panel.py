@@ -3,11 +3,13 @@ ui/chart_panel.py — Real-time scrolling chart panel (pyqtgraph).
 """
 from __future__ import annotations
 
+import csv
 import time
 from collections import deque
 
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+import pyqtgraph.exporters
+from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 CHART_COLORS = [
     "#3ecf8e", "#ff7b54", "#60a5fa", "#f59e0b",
@@ -30,14 +32,14 @@ class ChartPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        self._plot = pg.PlotWidget(background="#1a1d2e")
-        pi = self._plot.getPlotItem()
-        pi.showGrid(x=True, y=True, alpha=0.15)
+        self._plot = pg.PlotWidget(background="#1e1e1e")
+        self._pi = self._plot.getPlotItem()
+        self._pi.showGrid(x=True, y=True, alpha=0.15)
         for axis in ("bottom", "left"):
-            pi.getAxis(axis).setPen(pg.mkPen("#3e4460"))
-            pi.getAxis(axis).setTextPen(pg.mkPen("#6b7280"))
-        pi.getAxis("bottom").setLabel("Time", units="s",
-                                      **{"color": "#6b7280", "font-size": "9px"})
+            self._pi.getAxis(axis).setPen(pg.mkPen("#3e3e42"))
+            self._pi.getAxis(axis).setTextPen(pg.mkPen("#6a6a7a"))
+        self._pi.getAxis("bottom").setLabel("Time", units="s",
+                                            **{"color": "#6a6a7a", "font-size": "9px"})
         self._plot.setMouseEnabled(x=True, y=True)
         lay.addWidget(self._plot)
 
@@ -47,7 +49,24 @@ class ChartPanel(QWidget):
         self._legend_lay.setContentsMargins(8, 4, 8, 4)
         self._legend_lay.setSpacing(12)
         self._legend_lay.addStretch()
+
+        for label, slot in (("PNG", self._export_png), ("CSV", self._export_csv)):
+            btn = QPushButton(label)
+            btn.setObjectName("iconBtn")
+            btn.setFixedHeight(20)
+            btn.setFixedWidth(36)
+            btn.clicked.connect(slot)
+            self._legend_lay.addWidget(btn)
+
         lay.addWidget(self._legend_w)
+
+    def apply_theme(self, c: dict) -> None:
+        self._plot.setBackground(c["bg"])
+        for axis in ("bottom", "left"):
+            self._pi.getAxis(axis).setPen(pg.mkPen(c["bg4"]))
+            self._pi.getAxis(axis).setTextPen(pg.mkPen(c["fg_dim"]))
+        self._pi.getAxis("bottom").setLabel("Time", units="s",
+                                            **{"color": c["fg_dim"], "font-size": "9px"})
 
     # ── Channel management ─────────────────────────────────────────────────────
 
@@ -101,3 +120,39 @@ class ChartPanel(QWidget):
             ch["buf_t"].clear()
             ch["buf_v"].clear()
             ch["curve"].setData([], [])
+
+    # ── Export ─────────────────────────────────────────────────────────────────
+
+    def _export_png(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export chart as PNG", "chart.png", "PNG image (*.png)")
+        if not path:
+            return
+        exp = pyqtgraph.exporters.ImageExporter(self._pi)
+        exp.parameters()["width"] = 1920
+        exp.export(path)
+
+    def _export_csv(self) -> None:
+        if not self._channels:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export chart data as CSV", "chart.csv", "CSV file (*.csv)")
+        if not path:
+            return
+        names = list(self._channels.keys())
+        # Build a unified time index: all timestamps from all channels, sorted
+        all_t = sorted({t for ch in self._channels.values() for t in ch["buf_t"]})
+        # Per-channel lookup: t -> value
+        lookups = {
+            name: dict(zip(ch["buf_t"], ch["buf_v"]))
+            for name, ch in self._channels.items()
+        }
+        with open(path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["time_s"] + names)
+            for t in all_t:
+                row = [f"{t:.4f}"] + [
+                    f"{lookups[n][t]:.6g}" if t in lookups[n] else ""
+                    for n in names
+                ]
+                writer.writerow(row)

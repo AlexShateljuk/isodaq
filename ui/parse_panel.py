@@ -6,7 +6,7 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSizePolicy,
+    QPushButton, QSizePolicy, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
@@ -243,6 +243,148 @@ class ParsePanel(QWidget):
 
         self._editor.hide()
         root.addWidget(self._editor)
+
+        self._build_snippet_section(root)
+
+    # ── Snippet section ───────────────────────────────────────────────────────
+
+    def _build_snippet_section(self, root: QVBoxLayout) -> None:
+        # Toggle header
+        self._snip_toggle = QPushButton("▶  Custom Snippet")
+        self._snip_toggle.setObjectName("iconBtn")
+        self._snip_toggle.setStyleSheet(
+            "text-align:left;padding:4px 8px;"
+            "font-family:'JetBrains Mono';font-size:10px;")
+        self._snip_toggle.clicked.connect(self._toggle_snippet)
+        root.addWidget(self._snip_toggle)
+
+        self._snip_w = QWidget()
+        self._snip_w.setObjectName("triggerHeader")
+        sl = QVBoxLayout(self._snip_w)
+        sl.setContentsMargins(10, 8, 10, 8)
+        sl.setSpacing(5)
+
+        hint = QLabel(
+            "Receives:  line: str\n"
+            "Return:    dict[str, float]  or  None\n"
+            "Example:   return {'bat': float(line.split('=')[1])}")
+        hint.setObjectName("dimLabel")
+        hint.setWordWrap(True)
+        sl.addWidget(hint)
+
+        self._snip_edit = QTextEdit()
+        self._snip_edit.setObjectName("customCmd")
+        self._snip_edit.setPlaceholderText(
+            "import re\n"
+            "m = re.findall(r'(\\w+)\\s*[=:>-]+\\s*(-?[\\d.]+)', line)\n"
+            "return {k: float(v) for k, v in m}")
+        self._snip_edit.setMinimumHeight(90)
+        self._snip_edit.setMaximumHeight(180)
+        self._snip_edit.setAcceptRichText(False)
+        sl.addWidget(self._snip_edit)
+
+        # Test row
+        r_test = QHBoxLayout(); r_test.setSpacing(5)
+        r_test.addWidget(_lbl("Test"))
+        self._snip_test_e = QLineEdit()
+        self._snip_test_e.setPlaceholderText("Paste a sample line")
+        r_test.addWidget(self._snip_test_e)
+        run_btn = QPushButton("▶")
+        run_btn.setFixedSize(26, 22)
+        run_btn.clicked.connect(self._run_snippet_test)
+        r_test.addWidget(run_btn)
+        sl.addLayout(r_test)
+
+        self._snip_result = QLabel("")
+        self._snip_result.setWordWrap(True)
+        self._snip_result.setObjectName("dimLabel")
+        sl.addWidget(self._snip_result)
+
+        # Apply button
+        r_apply = QHBoxLayout(); r_apply.setSpacing(6)
+        apply_btn = QPushButton("Apply")
+        apply_btn.setObjectName("save")
+        apply_btn.setFixedHeight(24)
+        apply_btn.clicked.connect(self._apply_snippet)
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedHeight(24)
+        clear_btn.clicked.connect(self._clear_snippet)
+        r_apply.addWidget(apply_btn)
+        r_apply.addWidget(clear_btn)
+        r_apply.addStretch()
+        self._snip_status = QLabel("")
+        self._snip_status.setObjectName("dimLabel")
+        r_apply.addWidget(self._snip_status)
+        sl.addLayout(r_apply)
+
+        self._snip_w.hide()
+        root.addWidget(self._snip_w)
+
+    def _toggle_snippet(self) -> None:
+        if self._snip_w.isHidden():
+            self._snip_w.show()
+            self._snip_toggle.setText("▼  Custom Snippet")
+        else:
+            self._snip_w.hide()
+            self._snip_toggle.setText("▶  Custom Snippet")
+
+    def _apply_snippet(self) -> None:
+        code = self._snip_edit.toPlainText().strip()
+        err = self._parser.set_snippet(code)
+        if err:
+            self._snip_status.setText(f"✗  {err}")
+            self._snip_status.setStyleSheet("color:#ef4444;font-family:'JetBrains Mono';font-size:10px;")
+        else:
+            label = "Active" if code else "Cleared"
+            self._snip_status.setText(f"✓  {label}")
+            self._snip_status.setStyleSheet("color:#22c55e;font-family:'JetBrains Mono';font-size:10px;")
+
+    def _clear_snippet(self) -> None:
+        self._snip_edit.clear()
+        self._parser.set_snippet("")
+        self._snip_status.setText("Cleared")
+        self._snip_status.setStyleSheet("color:#6a6a7a;font-family:'JetBrains Mono';font-size:10px;")
+
+    def _run_snippet_test(self) -> None:
+        code = self._snip_edit.toPlainText().strip()
+        line = self._snip_test_e.text().strip()
+        if not code:
+            self._snip_result.setText("Write a snippet first.")
+            return
+        if not line:
+            self._snip_result.setText("Enter a test line.")
+            return
+        # Compile a fresh copy for the test
+        try:
+            indented = "\n".join("    " + ln for ln in code.splitlines())
+            ns: dict = {}
+            exec(compile(f"def _fn(line):\n{indented}\n", "<test>", "exec"), ns)  # noqa: S102
+            result = ns["_fn"](line)
+        except Exception as e:
+            self._snip_result.setText(f"✗  {e}")
+            self._snip_result.setStyleSheet(
+                "font-family:'JetBrains Mono';font-size:10px;color:#ef4444;")
+            return
+        if isinstance(result, dict) and result:
+            txt = "  ".join(f"{k}={v}" for k, v in result.items())
+            self._snip_result.setText(f"✓  {txt}")
+            self._snip_result.setStyleSheet(
+                "font-family:'JetBrains Mono';font-size:10px;color:#22c55e;")
+        elif result is None or result == {}:
+            self._snip_result.setText("✗  No match (returned None or empty dict)")
+            self._snip_result.setStyleSheet(
+                "font-family:'JetBrains Mono';font-size:10px;color:#f59e0b;")
+        else:
+            self._snip_result.setText(f"✗  Expected dict, got {type(result).__name__}")
+            self._snip_result.setStyleSheet(
+                "font-family:'JetBrains Mono';font-size:10px;color:#ef4444;")
+
+    def load_snippet(self, code: str) -> None:
+        self._snip_edit.setPlainText(code)
+        if code.strip():
+            self._snip_status.setText("✓  Active")
+            self._snip_status.setStyleSheet(
+                "color:#22c55e;font-family:'JetBrains Mono';font-size:10px;")
 
     # ── Editor ────────────────────────────────────────────────────────────────
 

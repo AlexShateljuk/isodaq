@@ -44,16 +44,18 @@ from core.logger import Logger
 from core.macros import MacroRunner
 from core.serial_reader import SerialReader
 from core.triggers import Trigger, TriggerEngine
+from core.updater import UpdateChecker
 from core.data_parser import DataParser
 from ui.logger_panel import LoggerPanel
 from ui.log_colorizer_dialog import LogColorizerDialog, match_log_color
 from ui.macro_panel import MacroPanel
 from ui.parse_panel import ParsePanel
 from ui.trigger_panel import TriggerPanel
+from ui.analytics_panel import AnalyticsPanel
 from ui.chart_panel import ChartPanel
 from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
-from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_display
+from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -180,7 +182,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._start_timers()
         self._load_settings()   # restore persisted state before first port scan
+        self._sync_analytics()  # populate analytics with initial trigger list
         self._refresh_ports()
+        self._start_update_check()
 
         # Backup save — fires even when the process is killed without closeEvent
         from PyQt6.QtWidgets import QApplication
@@ -204,6 +208,9 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        self._update_banner = self._build_update_banner()
+        root.addWidget(self._update_banner)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(3)
@@ -462,6 +469,9 @@ class MainWindow(QMainWindow):
         self._trigger_events_panel = TriggerEventsPanel()
         self._tabs.addTab(self._trigger_events_panel, "Trigger Events")
 
+        self._analytics_panel = AnalyticsPanel()
+        self._tabs.addTab(self._analytics_panel, "Analytics")
+
         # Pop-out button in the tab-bar corner
         _float_btn = QPushButton("⤢")
         _float_btn.setObjectName("floatBtn")
@@ -571,6 +581,51 @@ class MainWindow(QMainWindow):
         lay.addWidget(sb)
         return w
 
+    # ── Update banner ─────────────────────────────────────────────────────────
+
+    def _build_update_banner(self) -> QWidget:
+        w = QWidget()
+        w.setObjectName("updateBanner")
+        w.hide()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(12, 4, 8, 4)
+        lay.setSpacing(10)
+
+        self._update_lbl = QLabel("")
+        self._update_lbl.setObjectName("updateLabel")
+        lay.addWidget(self._update_lbl)
+        lay.addStretch()
+
+        self._update_dl_btn = QPushButton("Download")
+        self._update_dl_btn.setObjectName("iconBtn")
+        self._update_dl_btn.clicked.connect(self._open_release_page)
+        lay.addWidget(self._update_dl_btn)
+
+        dismiss = QPushButton("×")
+        dismiss.setObjectName("delBtn")
+        dismiss.setFixedSize(20, 20)
+        dismiss.clicked.connect(w.hide)
+        lay.addWidget(dismiss)
+        return w
+
+    def _start_update_check(self):
+        self._release_url = ""
+        self._updater = UpdateChecker("0.1.0", self)
+        self._updater.update_available.connect(self._on_update_available)
+        QTimer.singleShot(2000, self._updater.start)
+
+    @pyqtSlot(str, str)
+    def _on_update_available(self, version: str, url: str):
+        self._release_url = url
+        self._update_lbl.setText(
+            f"IsoDAQ Studio v{version} is available — you have v0.1.0")
+        self._update_banner.show()
+
+    def _open_release_page(self):
+        import webbrowser
+        if self._release_url:
+            webbrowser.open(self._release_url)
+
     # ── Statusbar ─────────────────────────────────────────────────────────────
 
     def _build_statusbar(self):
@@ -605,6 +660,9 @@ class MainWindow(QMainWindow):
 
         # Trigger matches → GUI highlight + log
         self._engine.on_match(self._on_trigger_match_threadsafe)
+
+        # Trigger list changes → sync analytics panel
+        self._trigger_panel.trigger_changed.connect(self._sync_analytics)
 
         # Parse panel → chart / indicator panels
         self._parse_panel.channel_chart_req.connect(self._on_channel_chart_req)
@@ -736,6 +794,7 @@ class MainWindow(QMainWindow):
             self._log("SYS", f"[TRIGGER:{trigger.name}] Log resumed.", C_OK)
 
         self._trigger_panel.refresh_hits()
+        self._analytics_panel.record_hit(trigger.name)
 
         # Always log to trigger events panel
         self._trigger_events_panel.add_event(ts, trigger.name, line, dict(self._last_parsed))
@@ -754,6 +813,7 @@ class MainWindow(QMainWindow):
         win = _FloatWindow(widget, title, self._tabs, idx)
         from PyQt6.QtWidgets import QApplication
         win.setStyleSheet(QApplication.instance().styleSheet())
+        tint_titlebar(win)
         win.destroyed.connect(lambda: self._float_wins.remove(win) if win in self._float_wins else None)
         self._float_wins.append(win)
         win.show()
@@ -765,6 +825,9 @@ class MainWindow(QMainWindow):
         else:
             self._chart_panel.remove_channel(name)
             self._trigger_events_panel.unregister_channel(name)
+
+    def _sync_analytics(self) -> None:
+        self._analytics_panel.sync_triggers(self._engine.get_triggers())
 
     @pyqtSlot(str, bool)
     def _on_channel_indicator_req(self, name: str, enable: bool) -> None:
@@ -868,6 +931,12 @@ class MainWindow(QMainWindow):
         C_FG  = QColor(c["fg"])
         # Set on QApplication so all open dialogs inherit it automatically
         QApplication.instance().setStyleSheet(build_stylesheet(theme))
+        self._chart_panel.apply_theme(c)
+        self._analytics_panel.apply_theme(c)
+        set_current_theme(theme)
+        tint_titlebar(self)
+        for win in self._float_wins:
+            tint_titlebar(win)
         self._log("SYS", f"Theme: {theme}", C_SYS)
 
     def _on_autoscroll_toggled(self, state: int) -> None:
@@ -898,6 +967,7 @@ class MainWindow(QMainWindow):
 
     def _open_log_colorizer(self):
         dlg = LogColorizerDialog(self._log_colorizer_enabled, self)
+        tint_titlebar(dlg)
         if dlg.exec() == LogColorizerDialog.DialogCode.Accepted:
             self._log_colorizer_enabled = dlg.result_enabled()
             if self._log_colorizer_enabled:
@@ -1097,9 +1167,16 @@ class MainWindow(QMainWindow):
             self._parse_panel._rebuild()
             self._parse_panel.sync_display_panels()
 
+        if "snippet" in data and data["snippet"]:
+            self._parser.set_snippet(data["snippet"])
+            self._parse_panel.load_snippet(data["snippet"])
+
         if "macros" in data:
             # _macro_panel is built during _build_ui which runs before _load_settings
             self._macro_panel.from_dict_list(data["macros"])
+
+        if "indicator_thresholds" in data:
+            self._indicator_panel.set_thresholds(data["indicator_thresholds"])
 
         if "sections" in data:
             for key, is_collapsed in data["sections"].items():
@@ -1129,8 +1206,10 @@ class MainWindow(QMainWindow):
                 "theme":      self._current_theme,
                 "colorizer":  list(self._log_colorizer_enabled),
                 "channels":   self._parser.to_dict_list(),
+                "snippet":    self._parser.get_snippet(),
                 "macros":     self._macro_panel.to_dict_list(),
                 "sections":   {k: v.collapsed for k, v in self._sidebar_sections.items()},
+                "indicator_thresholds": self._indicator_panel.get_thresholds(),
             }, indent=2))
         except Exception:
             import traceback
@@ -1141,6 +1220,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QSpinBox
 
         dlg = QDialog(self)
+        tint_titlebar(dlg)
         dlg.setWindowTitle("Preferences")
         dlg.setMinimumWidth(320)
         dlg.setModal(True)

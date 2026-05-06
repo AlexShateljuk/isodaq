@@ -375,8 +375,44 @@ QHeaderView::section {{
     padding: 3px 5px; border: none;
     border-right: 1px solid {c['border']};
 }}
+
+/* ── Update banner ──────────────────────────────────────────── */
+QWidget#updateBanner {{
+    background: {c['accent_bg']};
+    border-bottom: 1px solid {c['accent_brd']};
+}}
+QLabel#updateLabel {{
+    color: {c['accent']};
+    font-family: 'JetBrains Mono'; font-size: 11px;
+}}
 """
 
 
 def key_from_display(display_name: str) -> ThemeName:
     return _THEME_KEYS.get(display_name, "vscode")  # type: ignore[return-value]
+
+
+_current_theme: ThemeName = "vscode"
+
+
+def set_current_theme(theme: ThemeName) -> None:
+    global _current_theme
+    _current_theme = theme
+
+
+def tint_titlebar(widget) -> None:
+    """Apply DWM title-bar color matching the active theme (Windows only)."""
+    import sys
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes.wintypes import DWORD
+    c = _PALETTES.get(_current_theme, _PALETTES["vscode"])
+    hwnd = int(widget.winId())
+    dwmapi = ctypes.windll.dwmapi
+    dark = DWORD(1 if _current_theme == "vscode" else 0)
+    dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))
+    bg = c["bg"].lstrip("#")
+    r, g, b = int(bg[0:2], 16), int(bg[2:4], 16), int(bg[4:6], 16)
+    color = DWORD(r | (g << 8) | (b << 16))
+    dwmapi.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(color), ctypes.sizeof(color))

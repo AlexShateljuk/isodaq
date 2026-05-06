@@ -30,7 +30,7 @@ from core.triggers import Trigger, TriggerEngine, parse_trigger_line
 HINTS = {
     "contains": "Case-insensitive substring.  Example:  Brownout Detector",
     "regex":    "Python re (IGNORECASE).  Example:  hard.?fault|HardFault_Handler|ERR_\\d+",
-    "python":   "Lambda returning bool.  Example:  lambda line: 'ERR' in line and '=' in line",
+    "python":   "Lambda returning bool. Case-sensitive — use .lower() for case-insensitive.  Example:  lambda line: 'err' in line.lower()",
 }
 
 
@@ -183,6 +183,42 @@ class TriggerPanel(QWidget):
         self._hint = QLabel(""); self._hint.setObjectName("hint"); self._hint.setWordWrap(True)
         el.addWidget(self._hint)
 
+        # Notifications
+        notif_lbl = QLabel("Notifications")
+        notif_lbl.setObjectName("sectionTitle")
+        el.addWidget(notif_lbl)
+
+        r_url = QHBoxLayout(); r_url.setSpacing(5)
+        url_lbl = QLabel("URL")
+        url_lbl.setObjectName("dimLabel")
+        url_lbl.setFixedWidth(46)
+        r_url.addWidget(url_lbl)
+        self._notify_url = QLineEdit()
+        self._notify_url.setPlaceholderText(
+            "https://hooks.example.com/…  or  https://api.telegram.org/bot<TOKEN>/sendMessage")
+        self._notify_url.setToolTip(
+            "Webhook: POST JSON {trigger, line, ts, text}\n"
+            "Telegram: paste the full sendMessage URL and set Chat ID below")
+        r_url.addWidget(self._notify_url)
+        el.addLayout(r_url)
+
+        r_tg = QHBoxLayout(); r_tg.setSpacing(5)
+        tg_lbl = QLabel("Chat ID")
+        tg_lbl.setObjectName("dimLabel")
+        tg_lbl.setFixedWidth(46)
+        r_tg.addWidget(tg_lbl)
+        self._notify_tg = QLineEdit()
+        self._notify_tg.setFixedWidth(120)
+        self._notify_tg.setPlaceholderText("Telegram chat_id")
+        r_tg.addWidget(self._notify_tg)
+        test_notif_btn = QPushButton("Test ▶")
+        test_notif_btn.setFixedHeight(22)
+        test_notif_btn.setToolTip("Send a test notification now")
+        test_notif_btn.clicked.connect(self._test_notification)
+        r_tg.addWidget(test_notif_btn)
+        r_tg.addStretch()
+        el.addLayout(r_tg)
+
         r3 = QHBoxLayout(); r3.setSpacing(6)
         sv = QPushButton("Save"); sv.setObjectName("save"); sv.setFixedHeight(24)
         sv.clicked.connect(self._save)
@@ -208,8 +244,11 @@ class TriggerPanel(QWidget):
             self._a_sound.setChecked(t.action_sound)
             self._a_pause.setChecked(t.action_pause)
             self._a_resume.setChecked(t.action_resume)
+            self._notify_url.setText(t.notify_url)
+            self._notify_tg.setText(t.notify_tg_chat)
         else:
             self._pat.clear(); self._name_e.clear()
+            self._notify_url.clear(); self._notify_tg.clear()
         self._editor.show(); self._pat.setFocus()
 
     def _close_editor(self):
@@ -233,6 +272,8 @@ class TriggerPanel(QWidget):
             action_sound=self._a_sound.isChecked(),
             action_pause=self._a_pause.isChecked(),
             action_resume=self._a_resume.isChecked(),
+            notify_url=self._notify_url.text().strip(),
+            notify_tg_chat=self._notify_tg.text().strip(),
         )
         if self._editing:
             idx = self._rows.index(self._editing)
@@ -244,6 +285,20 @@ class TriggerPanel(QWidget):
             QMessageBox.warning(self, "Trigger error", f"Invalid pattern:\n{err}")
             return
         self._rebuild(); self._close_editor(); self.trigger_changed.emit()
+
+    def _test_notification(self) -> None:
+        from core.notifier import send_notification
+        from datetime import datetime
+        url = self._notify_url.text().strip()
+        if not url:
+            QMessageBox.information(self, "Notification", "Enter a URL first.")
+            return
+        send_notification(
+            url, self._notify_tg.text().strip(),
+            "Test trigger", "This is a test notification from IsoDAQ Studio",
+            datetime.now().strftime("%H:%M:%S.%f")[:-3],
+        )
+        QMessageBox.information(self, "Notification", "Test notification sent.")
 
     # ── List ──────────────────────────────────────────────────────────────────
     def _rebuild(self):
