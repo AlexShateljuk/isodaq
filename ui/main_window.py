@@ -22,6 +22,7 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QAction
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -34,6 +35,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStatusBar,
+    QSystemTrayIcon,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -118,11 +120,11 @@ class CollapsibleSection(QWidget):
         hdr.setCursor(Qt.CursorShape.PointingHandCursor)
         hdr.setMouseTracking(True)
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(10, 7, 8, 7)
-        hl.setSpacing(6)
+        hl.setContentsMargins(10, 8, 8, 8)
+        hl.setSpacing(7)
 
-        self._arrow = QLabel("▶" if self._collapsed else "▼")
-        self._arrow.setObjectName("sectionTitle")
+        self._arrow = QLabel("▸" if self._collapsed else "▾")
+        self._arrow.setObjectName("sectionArrow")
         self._arrow.setFixedWidth(12)
         hl.addWidget(self._arrow)
 
@@ -144,7 +146,7 @@ class CollapsibleSection(QWidget):
     def toggle(self) -> None:
         self._collapsed = not self._collapsed
         self._content_w.setVisible(not self._collapsed)
-        self._arrow.setText("▶" if self._collapsed else "▼")
+        self._arrow.setText("▸" if self._collapsed else "▾")
 
     @property
     def collapsed(self) -> bool:
@@ -154,7 +156,8 @@ class CollapsibleSection(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("IsoDAQ Studio v0.1.0")
+        _ver = QApplication.instance().applicationVersion()
+        self.setWindowTitle(f"IsoDAQ Studio v{_ver}")
         self.resize(1300, 780)
         self.setMinimumSize(900, 600)
 
@@ -177,6 +180,7 @@ class MainWindow(QMainWindow):
         self._session_sec = 0
         self._right_panel_visible: bool = True
         self._user_scrolling: bool = False
+        self._mode: str = "advanced"
 
         self._build_ui()
         self._connect_signals()
@@ -187,7 +191,6 @@ class MainWindow(QMainWindow):
         self._start_update_check()
 
         # Backup save — fires even when the process is killed without closeEvent
-        from PyQt6.QtWidgets import QApplication
         QApplication.instance().aboutToQuit.connect(self._save_settings)
 
         self._log("SYS", "IsoDAQ Studio started.", C_SYS)
@@ -199,7 +202,6 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         """Assembles the full window: stylesheet, menu, left/right splitter, statusbar."""
-        from PyQt6.QtWidgets import QApplication
         QApplication.instance().setStyleSheet(build_stylesheet(self._current_theme))
         self._build_menu()
 
@@ -238,6 +240,11 @@ class MainWindow(QMainWindow):
         device_m.addAction(QAction("Refresh ports", self, triggered=self._refresh_ports))
 
         view_m = mb.addMenu("View")
+        self._mode_action = QAction("Simple Mode", self, checkable=True,
+                                    shortcut="Ctrl+Shift+M",
+                                    triggered=self._toggle_mode)
+        view_m.addAction(self._mode_action)
+        view_m.addSeparator()
         view_m.addAction(QAction("Right Panel", self,
                                  triggered=self._toggle_right_panel,
                                  shortcut="Ctrl+Shift+R"))
@@ -252,7 +259,10 @@ class MainWindow(QMainWindow):
         settings_m.addAction(QAction("Log Colorizer…", self, triggered=self._open_log_colorizer))
         settings_m.addAction(QAction("Preferences…",   self, triggered=self._open_preferences))
 
-        mb.addMenu("Help")
+        help_m = mb.addMenu("Help")
+        help_m.addAction(QAction("Check for Updates", self, triggered=self._check_for_updates))
+        help_m.addSeparator()
+        help_m.addAction(QAction("About IsoDAQ Studio…", self, triggered=self._show_about))
 
     # ── Left panel ────────────────────────────────────────────────────────────
 
@@ -304,8 +314,9 @@ class MainWindow(QMainWindow):
         self._conn_btn.setFixedWidth(100)
         self._conn_btn.clicked.connect(self._toggle_connection)
         r1.addWidget(self._conn_btn)
-        self._panel_toggle_btn = QPushButton("▶")
-        self._panel_toggle_btn.setFixedSize(26, 26)
+        self._panel_toggle_btn = QPushButton("⊞")
+        self._panel_toggle_btn.setObjectName("panelToggleBtn")
+        self._panel_toggle_btn.setFixedSize(28, 28)
         self._panel_toggle_btn.setToolTip("Show/hide right panel  (Ctrl+Shift+R)")
         self._panel_toggle_btn.clicked.connect(self._toggle_right_panel)
         r1.addWidget(self._panel_toggle_btn)
@@ -335,17 +346,21 @@ class MainWindow(QMainWindow):
 
         # Row 3: checkboxes + font size + clear
         r3 = QHBoxLayout()
-        r3.setSpacing(10)
+        r3.setSpacing(0)
+        r3.setContentsMargins(0, 2, 0, 2)
         self._chk_ts    = QCheckBox("Timestamp"); self._chk_ts.setChecked(True)
         self._chk_hex   = QCheckBox("HEX")
         self._chk_auto  = QCheckBox("Autoscroll"); self._chk_auto.setChecked(True)
         self._chk_echo  = QCheckBox("Echo");       self._chk_echo.setChecked(True)
-        for c in (self._chk_ts, self._chk_hex, self._chk_auto, self._chk_echo):
-            r3.addWidget(c)
+        for chk in (self._chk_ts, self._chk_hex, self._chk_auto, self._chk_echo):
+            r3.addWidget(chk)
+            r3.addSpacing(20)
         r3.addStretch()
 
-        # Font size control
+        # Font size control — separated by a spacer from checkboxes
+        r3.addSpacing(6)
         r3.addWidget(self._lbl("A", dim=True))
+        r3.addSpacing(4)
         font_dec = QPushButton("−")
         font_dec.setFixedSize(22, 22)
         font_dec.setToolTip("Decrease terminal font size")
@@ -353,7 +368,7 @@ class MainWindow(QMainWindow):
         font_dec.clicked.connect(lambda: self._change_font_size(-1))
         r3.addWidget(font_dec)
         self._font_size_lbl = QLabel("11")
-        self._font_size_lbl.setFixedWidth(20)
+        self._font_size_lbl.setFixedWidth(22)
         self._font_size_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._font_size_lbl.setObjectName("dimLabelMono")
         r3.addWidget(self._font_size_lbl)
@@ -363,6 +378,7 @@ class MainWindow(QMainWindow):
         font_inc.setStyleSheet("font-size:13px;padding:0;")
         font_inc.clicked.connect(lambda: self._change_font_size(+1))
         r3.addWidget(font_inc)
+        r3.addSpacing(10)
 
         clr = QPushButton("Clear")
         clr.setFixedHeight(22)
@@ -384,8 +400,10 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(10, 7, 10, 7)
         lay.setSpacing(5)
 
-        # Parser strip
-        ps = QHBoxLayout()
+        # Parser strip (hidden in Simple mode)
+        self._parser_strip_w = QWidget()
+        ps = QHBoxLayout(self._parser_strip_w)
+        ps.setContentsMargins(0, 0, 0, 0)
         ps.setSpacing(7)
         parser_lbl = self._lbl("Parser", mono=True, dim=True)
         parser_lbl.setToolTip(
@@ -423,7 +441,7 @@ class MainWindow(QMainWindow):
         self._sep_edit.setToolTip("Separator, e.g. \",\" or \";\"")
         ps.addWidget(self._sep_edit)
         ps.addStretch()
-        lay.addLayout(ps)
+        lay.addWidget(self._parser_strip_w)
 
         # Command row
         cr = QHBoxLayout()
@@ -467,7 +485,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._indicator_panel, "Indicators")
 
         self._trigger_events_panel = TriggerEventsPanel()
-        self._tabs.addTab(self._trigger_events_panel, "Trigger Events")
+        self._tabs.addTab(self._trigger_events_panel, "Events")
 
         self._analytics_panel = AnalyticsPanel()
         self._tabs.addTab(self._analytics_panel, "Analytics")
@@ -540,7 +558,12 @@ class MainWindow(QMainWindow):
 
         # ── Data Logger ───────────────────────────────────────────────────────
         self._logger_panel = LoggerPanel(self._logger)
-        _cs("logger", "Data Logger", self._logger_panel)
+        _l_folder = QPushButton("📂")
+        _l_folder.setFixedSize(22, 20)
+        _l_folder.setToolTip("Open log folder")
+        _l_folder.setStyleSheet("font-size:11px;padding:0;")
+        _l_folder.clicked.connect(self._logger_panel._open_folder)
+        _cs("logger", "Data Logger", self._logger_panel, extras=[_l_folder])
 
         # ── Triggers ──────────────────────────────────────────────────────────
         self._trigger_panel = TriggerPanel(self._engine)
@@ -608,23 +631,68 @@ class MainWindow(QMainWindow):
         lay.addWidget(dismiss)
         return w
 
+    def _build_tray_icon(self):
+        icon = QApplication.instance().windowIcon()
+        self._tray = QSystemTrayIcon(icon, self)
+        self._tray.messageClicked.connect(self._open_release_page)
+        # Don't show in tray — we only use it for notifications
+        self._tray.hide()
+
     def _start_update_check(self):
         self._release_url = ""
-        self._updater = UpdateChecker("0.1.0", self)
+        self._build_tray_icon()
+        current = QApplication.instance().applicationVersion()
+        self._updater = UpdateChecker(current, self)
         self._updater.update_available.connect(self._on_update_available)
         QTimer.singleShot(2000, self._updater.start)
+
+    def _check_for_updates(self):
+        """Manual check triggered from Help menu. Runs a fresh checker and reports result."""
+        current = QApplication.instance().applicationVersion()
+        checker = UpdateChecker(current, self)
+        checker.update_available.connect(self._on_update_available)
+        checker.finished.connect(lambda: self._on_manual_check_done(checker))
+        checker.start()
+        self._manual_check_running = checker
+
+    def _on_manual_check_done(self, checker: "UpdateChecker"):
+        if not self._release_url:
+            QMessageBox.information(self, "No updates", "You are on the latest version.")
 
     @pyqtSlot(str, str)
     def _on_update_available(self, version: str, url: str):
         self._release_url = url
+        current = QApplication.instance().applicationVersion()
         self._update_lbl.setText(
-            f"IsoDAQ Studio v{version} is available — you have v0.1.0")
+            f"IsoDAQ Studio v{version} is available — you have v{current}")
         self._update_banner.show()
+        self._notify_update(version)
+
+    def _notify_update(self, version: str):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self._tray.show()
+        self._tray.showMessage(
+            "IsoDAQ Studio update available",
+            f"Version {version} is ready to download. Click to open.",
+            QSystemTrayIcon.MessageIcon.Information,
+            6000,  # ms the notification stays visible
+        )
 
     def _open_release_page(self):
         import webbrowser
         if self._release_url:
             webbrowser.open(self._release_url)
+
+    def _show_about(self):
+        ver = QApplication.instance().applicationVersion()
+        QMessageBox.about(
+            self,
+            "About IsoDAQ Studio",
+            f"<b>IsoDAQ Studio</b> v{ver}<br><br>"
+            "Serial data acquisition and analysis tool.<br><br>"
+            '<a href="https://github.com/AlexShateljuk/isodaq">github.com/AlexShateljuk/isodaq</a>',
+        )
 
     # ── Statusbar ─────────────────────────────────────────────────────────────
 
@@ -774,7 +842,6 @@ class MainWindow(QMainWindow):
 
         # ── Sound: system beep ────────────────────────────────────────────────
         if trigger.action_sound:
-            from PyQt6.QtWidgets import QApplication
             QApplication.beep()
 
         # ── Pause log: stop active logging session ────────────────────────────
@@ -811,7 +878,6 @@ class MainWindow(QMainWindow):
         title  = self._tabs.tabText(idx)
         self._tabs.removeTab(idx)
         win = _FloatWindow(widget, title, self._tabs, idx)
-        from PyQt6.QtWidgets import QApplication
         win.setStyleSheet(QApplication.instance().styleSheet())
         tint_titlebar(win)
         win.destroyed.connect(lambda: self._float_wins.remove(win) if win in self._float_wins else None)
@@ -918,7 +984,6 @@ class MainWindow(QMainWindow):
 
     def _apply_theme(self, theme: str) -> None:
         """Switch the application colour theme and refresh all colours."""
-        from PyQt6.QtWidgets import QApplication
         self._current_theme = theme
         c = theme_colors(theme)
         global C_RX, C_TX, C_SYS, C_OK, C_ERR, C_DIM, C_FG
@@ -948,11 +1013,25 @@ class MainWindow(QMainWindow):
         """Show or hide the right panel; update toggle button label."""
         self._right_panel_visible = not self._right_panel_visible
         self._right_widget.setVisible(self._right_panel_visible)
-        self._panel_toggle_btn.setText("▶" if self._right_panel_visible else "◀")
+        self._panel_toggle_btn.setText("⊞" if self._right_panel_visible else "⊟")
         if self._right_panel_visible:
             # Restore a reasonable split when showing again
             total = self._main_splitter.width()
             self._main_splitter.setSizes([int(total * 0.54), int(total * 0.46)])
+
+    def _toggle_mode(self) -> None:
+        self._set_mode("simple" if self._mode == "advanced" else "advanced")
+
+    def _set_mode(self, mode: str) -> None:
+        self._mode = mode
+        simple = mode == "simple"
+        self._right_widget.setVisible(not simple)
+        self._panel_toggle_btn.setVisible(not simple)
+        self._parser_strip_w.setVisible(not simple)
+        self._mode_action.setChecked(simple)
+        if not simple and self._right_panel_visible:
+            total = self._main_splitter.width()
+            self._main_splitter.setSizes([int(total * 0.46), int(total * 0.54)])
 
     def _change_font_size(self, delta: int) -> None:
         """
@@ -1184,6 +1263,9 @@ class MainWindow(QMainWindow):
                 if cs is not None and cs.collapsed != is_collapsed:
                     cs.toggle()
 
+        if "mode" in data:
+            self._set_mode(data["mode"])
+
     def _save_settings(self) -> None:
         """Persists all UI state to ~/.isodaq_studio/config.json."""
         try:
@@ -1210,6 +1292,7 @@ class MainWindow(QMainWindow):
                 "macros":     self._macro_panel.to_dict_list(),
                 "sections":   {k: v.collapsed for k, v in self._sidebar_sections.items()},
                 "indicator_thresholds": self._indicator_panel.get_thresholds(),
+                "mode":       self._mode,
             }, indent=2))
         except Exception:
             import traceback

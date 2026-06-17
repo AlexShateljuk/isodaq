@@ -173,12 +173,35 @@ Session log of every trigger match:
 - Alternating row colours, row selection, non-editable
 - Event counter in the header; **Clear** resets the table
 - Pop-out supported (`⤢`)
+- Tab label: **Events**
+
+### UI modes
+
+Two layout modes switchable via `View → Simple Mode` (`Ctrl+Shift+M`):
+
+| Mode | What's visible |
+|------|---------------|
+| **Advanced** (default) | Full layout — port bar, terminal, right panel (charts, indicators, triggers, analytics), sidebar |
+| **Simple** | Left panel only — port settings, terminal, command input; parser strip hidden |
+
+Mode is persisted across sessions.
 
 ### Themes
 
 - **Dark (VS Code)** — default, `#1e1e1e` base with teal accents
 - **Light** — off-white base with green accents
-- Switchable at runtime via `Settings → Theme`; all open windows including pop-outs update immediately
+- Switchable at runtime via `View → Theme`; all open windows including pop-outs update immediately
+
+### Auto-update check
+
+On startup (2 s after launch) the app silently queries the GitHub Releases API.  
+If a newer version tag is found:
+
+- A dismissible **banner** appears at the top of the window with a "Download" button
+- An **OS system notification** fires (macOS Notification Center / Windows Action Center) — clicking it opens the release page in the browser
+
+`Help → Check for Updates` triggers a manual check at any time.  
+`Help → About IsoDAQ Studio` shows the current version.
 
 ### Settings persistence
 
@@ -224,14 +247,16 @@ SerialReader (QThread)
 
 ```
 isodaq/
-├── main.py                           # Entry point
+├── main.py                           # Entry point, version constant
 ├── requirements.txt
 ├── core/
 │   ├── serial_reader.py              # QThread serial reader
 │   ├── logger.py                     # Async dual-sink logger
 │   ├── triggers.py                   # Trigger engine
 │   ├── macros.py                     # Macro runner
-│   └── data_parser.py                # Channel extraction engine
+│   ├── data_parser.py                # Channel extraction engine
+│   ├── updater.py                    # GitHub Releases update checker (QThread)
+│   └── notifier.py                   # Telegram / webhook trigger notifier
 └── ui/
     ├── main_window.py                # Main window, layout, signal wiring
     ├── chart_panel.py                # pyqtgraph scrolling chart
@@ -242,6 +267,7 @@ isodaq/
     ├── macro_panel.py                # Macro editor
     ├── logger_panel.py               # Logger controls
     ├── log_colorizer_dialog.py       # Log colorizer settings
+    ├── analytics_panel.py            # Trigger hit analytics
     └── themes.py                     # Dark / Light stylesheets
 ```
 

@@ -21,7 +21,7 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QFileDialog, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QComboBox, QSizePolicy, QVBoxLayout, QWidget,
+    QLineEdit, QPushButton, QComboBox, QVBoxLayout, QWidget,
 )
 
 from core.logger import Logger
@@ -48,38 +48,46 @@ class LoggerPanel(QWidget):
         self._build()
         QTimer(self, interval=500, timeout=self._refresh).start()
 
+    @staticmethod
+    def _lbl(text: str) -> QLabel:
+        w = QLabel(text)
+        w.setObjectName("dimLabel")
+        return w
+
     def _build(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(5)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(8)
 
         # Prefix
-        r = QHBoxLayout(); r.setSpacing(5)
-        r.addWidget(QLabel("Prefix"))
+        r = QHBoxLayout(); r.setSpacing(6)
+        r.addWidget(self._lbl("Prefix"))
         self._prefix = QLineEdit("log_session")
         self._prefix.textChanged.connect(self._logger.set_prefix)
         r.addWidget(self._prefix)
         lay.addLayout(r)
 
         # Format + dir
-        r2 = QHBoxLayout(); r2.setSpacing(5)
-        r2.addWidget(QLabel("Format"))
+        r2 = QHBoxLayout(); r2.setSpacing(6)
+        r2.addWidget(self._lbl("Format"))
         self._fmt = QComboBox()
         self._fmt.addItems(["csv", "json", "txt", "raw"])
         self._fmt.currentTextChanged.connect(self._logger.set_format)
         r2.addWidget(self._fmt)
-        dir_btn = QPushButton("Dir…"); dir_btn.setFixedWidth(42)
+        dir_btn = QPushButton("Dir…"); dir_btn.setFixedWidth(46)
+        dir_btn.setToolTip("Choose log output directory")
         dir_btn.clicked.connect(self._pick_dir)
         r2.addWidget(dir_btn)
         lay.addLayout(r2)
 
         # Sink checkboxes
-        r3 = QHBoxLayout(); r3.setSpacing(10)
+        r3 = QHBoxLayout(); r3.setSpacing(0)
         self._chk_file = QCheckBox("File"); self._chk_file.setChecked(True)
         self._chk_db   = QCheckBox("SQLite"); self._chk_db.setChecked(True)
         self._chk_file.toggled.connect(self._logger.set_use_file)
         self._chk_db.toggled.connect(self._logger.set_use_db)
         r3.addWidget(self._chk_file)
+        r3.addSpacing(16)
         r3.addWidget(self._chk_db)
         r3.addStretch()
         lay.addLayout(r3)
@@ -87,32 +95,26 @@ class LoggerPanel(QWidget):
         # Toggle button
         self._btn = QPushButton("▶  Start Log")
         self._btn.setObjectName("start")
-        self._btn.setFixedHeight(28)
+        self._btn.setFixedHeight(30)
         self._btn.clicked.connect(self._toggle)
         lay.addWidget(self._btn)
 
-        # Stats
-        r4 = QHBoxLayout(); r4.setSpacing(8)
-        r4.addWidget(QLabel("File:"))
+        # Stats row
+        r4 = QHBoxLayout(); r4.setSpacing(6)
+        r4.addWidget(self._lbl("File:"))
         self._lbl_file = QLabel("—"); self._lbl_file.setObjectName("stat")
         r4.addWidget(self._lbl_file)
-        r4.addWidget(QLabel("DB:"))
+        r4.addSpacing(8)
+        r4.addWidget(self._lbl("DB:"))
         self._lbl_db = QLabel("—"); self._lbl_db.setObjectName("stat")
         r4.addWidget(self._lbl_db)
         r4.addStretch()
         lay.addLayout(r4)
 
-        r5 = QHBoxLayout(); r5.setSpacing(5)
+        # Path label
         self._lbl_path = QLabel("—")
         self._lbl_path.setObjectName("path")
-        self._lbl_path.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        r5.addWidget(self._lbl_path)
-        open_btn = QPushButton("📂")
-        open_btn.setFixedSize(26, 22)
-        open_btn.setToolTip("Open log folder")
-        open_btn.clicked.connect(self._open_folder)
-        r5.addWidget(open_btn)
-        lay.addLayout(r5)
+        lay.addWidget(self._lbl_path)
 
     @staticmethod
     def _repolish(w) -> None:

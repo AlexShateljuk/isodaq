@@ -105,9 +105,9 @@ def build_stylesheet(theme: ThemeName = "vscode") -> str:
 /* ── Base ───────────────────────────────────────────────── */
 QMainWindow, QDialog, QWidget {{
     background: {c['bg']}; color: {c['fg']};
-    font-family: 'IBM Plex Sans'; font-size: 12px;
+    font-family: 'IBM Plex Sans', 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+    font-size: 12px;
 }}
-/* Labels and checkboxes must be transparent so parent containers show through */
 QLabel {{ background: transparent; }}
 QCheckBox {{ background: transparent; }}
 QSplitter::handle {{ background: {c['splitter']}; }}
@@ -117,49 +117,64 @@ QSplitter::handle:hover {{ background: {c['splitter_h']}; }}
 QMenuBar {{
     background: {c['bg2']}; color: {c['fg_mid']};
     border-bottom: 1px solid {c['border']};
+    padding: 2px 0;
 }}
+QMenuBar::item {{ padding: 4px 10px; border-radius: 4px; }}
 QMenuBar::item:selected {{ background: {c['bg4']}; color: {c['fg']}; }}
 QMenu {{
     background: {c['bg3']}; color: {c['fg']};
     border: 1px solid {c['border2']};
+    border-radius: 6px; padding: 4px;
 }}
+QMenu::item {{ padding: 5px 28px 5px 12px; border-radius: 4px; }}
 QMenu::item:selected {{ background: {c['bg4']}; }}
+QMenu::separator {{ height: 1px; background: {c['border']}; margin: 4px 8px; }}
 
 /* ── Statusbar ──────────────────────────────────────────── */
 QStatusBar {{
     background: {c['bg2']}; color: {c['fg_dim']};
     border-top: 1px solid {c['border']};
-    font-family: 'JetBrains Mono'; font-size: 10px;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 10px;
 }}
 
 /* ── Tabs ───────────────────────────────────────────────── */
 QTabWidget::pane {{ border: none; background: {c['bg']}; }}
+QTabBar {{
+    font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+}}
 QTabBar::tab {{
     background: {c['bg2']}; color: {c['fg_dim']};
-    padding: 6px 16px; border: none;
+    padding: 7px 14px; border: none;
     border-bottom: 2px solid transparent; font-size: 11px;
+    min-width: 64px;
 }}
-QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; }}
-QTabBar::tab:hover {{ color: {c['fg_mid']}; }}
+QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; font-weight: 600; }}
+QTabBar::tab:hover:!selected {{ color: {c['fg_mid']}; background: {c['bg3']}; }}
 
 /* ── Scrollbars ─────────────────────────────────────────── */
-QScrollBar:vertical {{ background: {c['bg']}; width: 5px; }}
+QScrollBar:vertical {{ background: transparent; width: 6px; margin: 2px; }}
 QScrollBar::handle:vertical {{
-    background: {c['scrollbar']}; border-radius: 2px; min-height: 20px;
+    background: {c['scrollbar']}; border-radius: 3px; min-height: 24px;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+QScrollBar:horizontal {{ background: transparent; height: 6px; margin: 2px; }}
+QScrollBar::handle:horizontal {{
+    background: {c['scrollbar']}; border-radius: 3px; min-width: 24px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
 QScrollArea {{ border: none; background: transparent; }}
 
 /* ── ComboBox ───────────────────────────────────────────── */
 QComboBox {{
     background: {c['bg3']};
     border: 1px solid {c['border']};
-    border-radius: 4px;
-    padding: 3px 26px 3px 7px;
+    border-radius: 5px;
+    padding: 3px 26px 3px 8px;
     color: {c['fg']};
-    font-family: 'JetBrains Mono';
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
     font-size: 11px;
-    min-height: 22px;
+    min-height: 24px;
     selection-background-color: {c['bg4']};
 }}
 QComboBox:focus {{ border-color: {c['accent']}; }}
@@ -187,31 +202,33 @@ QComboBox QAbstractItemView {{
 /* ── LineEdit ───────────────────────────────────────────── */
 QLineEdit {{
     background: {c['bg3']}; border: 1px solid {c['border']};
-    border-radius: 4px; padding: 3px 7px;
-    color: {c['fg']}; font-family: 'JetBrains Mono';
-    font-size: 11px; min-height: 22px;
+    border-radius: 5px; padding: 3px 8px;
+    color: {c['fg']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    font-size: 11px; min-height: 24px;
 }}
 QLineEdit:focus {{ border-color: {c['accent']}; }}
+QLineEdit:hover {{ border-color: {c['border2']}; }}
 
 /* ── SpinBox ────────────────────────────────────────────── */
 QSpinBox {{
     background: {c['bg3']}; border: 1px solid {c['border']};
-    border-radius: 4px; padding: 3px 7px;
-    color: {c['fg']}; font-family: 'JetBrains Mono';
-    font-size: 11px; min-height: 22px;
+    border-radius: 5px; padding: 3px 8px;
+    color: {c['fg']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    font-size: 11px; min-height: 24px;
 }}
 QSpinBox:focus {{ border-color: {c['accent']}; }}
 QSpinBox::up-button, QSpinBox::down-button {{
-    width: 16px; border: none; background: {c['bg4']};
+    width: 16px; border: none; background: {c['bg4']}; border-radius: 2px;
 }}
 
 /* ── Buttons ────────────────────────────────────────────── */
 QPushButton {{
     background: {c['bg3']}; border: 1px solid {c['border']};
-    border-radius: 5px; padding: 4px 11px; color: {c['fg_mid']};
+    border-radius: 5px; padding: 4px 12px; color: {c['fg_mid']};
+    font-size: 12px;
 }}
-QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; }}
-QPushButton:pressed {{ background: {c['bg4']}; }}
+QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; background: {c['bg4']}; }}
+QPushButton:pressed {{ background: {c['bg4']}; border-color: {c['accent']}; }}
 
 /* Named semantic buttons */
 QPushButton#connectBtn {{
@@ -257,18 +274,24 @@ QCheckBox::indicator:checked {{
 }}
 
 /* ── Labels ─────────────────────────────────────────────── */
-QLabel#dimLabel     {{ color: {c['fg_dim']}; }}
+QLabel#dimLabel     {{ color: {c['fg_dim']}; font-size: 11px; }}
 QLabel#dimLabelMono {{
     color: {c['fg_dim']};
-    font-family: 'JetBrains Mono'; font-size: 9px; letter-spacing: 1px;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    font-size: 10px; letter-spacing: 0.5px;
 }}
 QLabel#sectionTitle {{
-    color: {c['fg_dim']};
-    font-family: 'JetBrains Mono'; font-size: 9px; letter-spacing: 1px;
+    color: {c['fg_mid']};
+    font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.8px;
 }}
-QLabel#stat {{ color: {c['accent']}; font-family: 'JetBrains Mono'; font-size: 11px; }}
-QLabel#path {{ color: {c['fg_dim']}; font-family: 'JetBrains Mono'; font-size: 10px; }}
-QLabel#hint {{ color: {c['accent']}; font-family: 'JetBrains Mono'; font-size: 10px; }}
+QLabel#sectionArrow {{
+    color: {c['accent']};
+    font-size: 10px;
+}}
+QLabel#stat {{ color: {c['accent']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 11px; }}
+QLabel#path {{ color: {c['fg_dim']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 10px; }}
+QLabel#hint {{ color: {c['accent']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 10px; }}
 
 /* ── Colorizer rows ─────────────────────────────────────── */
 /* ── Accordion section header ────────────────────────────── */
@@ -276,6 +299,7 @@ QWidget#sectionHeader {{
     background: {c['bg3']};
     border-bottom: 1px solid {c['border']};
     border-top: 1px solid {c['border']};
+    min-height: 30px;
 }}
 QWidget#sectionHeader:hover {{ background: {c['bg4']}; }}
 
@@ -333,6 +357,18 @@ QPushButton#delBtn {{
 }}
 QPushButton#delBtn:hover {{ color: {c['err']}; background: transparent; }}
 
+/* ── Panel toggle button ────────────────────────────────── */
+QPushButton#panelToggleBtn {{
+    background: {c['bg4']}; border: 1px solid {c['border2']};
+    border-radius: 5px; color: {c['fg_mid']};
+    font-size: 14px; padding: 0;
+}}
+QPushButton#panelToggleBtn:hover {{
+    background: {c['accent_bg']}; border-color: {c['accent_brd']};
+    color: {c['accent']};
+}}
+QPushButton#panelToggleBtn:pressed {{ background: {c['bg3']}; }}
+
 /* ── Named areas ────────────────────────────────────────── */
 QWidget#portBar {{
     background: {c['bg2']}; border-bottom: 1px solid {c['border']};
@@ -352,13 +388,14 @@ QWidget#triggerHeader, QWidget#macroHeader {{
     border-bottom: 1px solid {c['border']};
 }}
 QTextEdit#terminal {{
-    background: {c['terminal']}; border: none; padding: 6px;
+    background: {c['terminal']}; border: none; padding: 8px 10px;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
 }}
 QLineEdit#cmdEdit {{
     border: 1px solid {c['accent_brd']};
     color: {c['accent']};
     background: {c['terminal']};
-    font-family: 'JetBrains Mono'; font-size: 11px;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 11px;
 }}
 
 /* ── Table (MacroEditor) ────────────────────────────────── */

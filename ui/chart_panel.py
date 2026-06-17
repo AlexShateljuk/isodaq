@@ -9,6 +9,7 @@ from collections import deque
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 CHART_COLORS = [
@@ -41,7 +42,24 @@ class ChartPanel(QWidget):
         self._pi.getAxis("bottom").setLabel("Time", units="s",
                                             **{"color": "#6a6a7a", "font-size": "9px"})
         self._plot.setMouseEnabled(x=True, y=True)
-        lay.addWidget(self._plot)
+
+        # Empty-state overlay — hidden once first channel is added
+        self._empty_label = QLabel("No channels yet\nAdd a channel in the Parsing panel\nor connect a device and send data")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_label.setStyleSheet(
+            "color: rgba(255,255,255,0.18); font-size: 13px; line-height: 1.8;"
+            "font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;"
+        )
+        self._empty_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        from PyQt6.QtWidgets import QStackedLayout
+        stack = QWidget()
+        sl = QStackedLayout(stack)
+        sl.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        sl.addWidget(self._plot)
+        sl.addWidget(self._empty_label)
+        sl.setCurrentWidget(self._empty_label)
+        lay.addWidget(stack)
 
         self._legend_w = QWidget()
         self._legend_w.setObjectName("sectionHeader")
@@ -86,14 +104,20 @@ class ChartPanel(QWidget):
         }
         lbl = QLabel(f"▲ {name}")
         lbl.setObjectName(f"legend_{name}")
-        lbl.setStyleSheet(f"color:{color};font-size:10px;font-family:'JetBrains Mono';")
+        lbl.setStyleSheet(
+            f"color:{color};font-size:10px;"
+            "font-family:'JetBrains Mono','SF Mono','Consolas',monospace;"
+        )
         self._legend_lay.insertWidget(self._legend_lay.count() - 1, lbl)
+        self._empty_label.setVisible(False)
 
     def remove_channel(self, name: str) -> None:
         ch = self._channels.pop(name, None)
         if not ch:
             return
         self._plot.removeItem(ch["curve"])
+        if not self._channels:
+            self._empty_label.setVisible(True)
         for i in range(self._legend_lay.count()):
             item = self._legend_lay.itemAt(i)
             w = item.widget() if item else None
