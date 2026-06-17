@@ -357,6 +357,31 @@ QPushButton#delBtn {{
 }}
 QPushButton#delBtn:hover {{ color: {c['err']}; background: transparent; }}
 
+/* ── Share / Join buttons ───────────────────────────────── */
+QPushButton#shareBtn {{
+    background: {c['bg3']}; border: 1px solid {c['border2']};
+    border-radius: 5px; color: {c['fg_mid']}; font-size: 11px;
+}}
+QPushButton#shareBtn:hover {{
+    background: {c['accent_bg']}; border-color: {c['accent_brd']};
+    color: {c['accent']};
+}}
+QPushButton#joinBtn {{
+    background: {c['bg3']}; border: 1px solid {c['border2']};
+    border-radius: 5px; color: {c['fg_mid']}; font-size: 11px;
+}}
+QPushButton#joinBtn:hover {{
+    background: {c['accent_bg']}; border-color: {c['accent_brd']};
+    color: {c['accent']};
+}}
+QPushButton#stopShareBtn {{
+    background: rgba(239,68,68,.15); color: {c['err']};
+    border: 1px solid rgba(239,68,68,.3); border-radius: 5px; font-size: 11px;
+}}
+QPushButton#stopShareBtn:hover {{
+    background: rgba(239,68,68,.25);
+}}
+
 /* ── Panel toggle button ────────────────────────────────── */
 QPushButton#panelToggleBtn {{
     background: {c['bg4']}; border: 1px solid {c['border2']};

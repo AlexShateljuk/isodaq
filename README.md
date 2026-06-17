@@ -67,8 +67,8 @@ The workflow file is at [`.github/workflows/release.yml`](.github/workflows/rele
 
 - Port, baud rate (9 600 – 921 600), data bits, parity, stop bits, flow control (None / RTS/CTS / XON/XOFF)
 - High-throughput reader: `in_waiting` chunk reads — no per-line latency at high baud rates
-- Partial-line flush: incomplete lines without a trailing `\n` are emitted after 250 ms of silence, preventing crash/brownout output from being merged with the following reboot line
-- Automatic disconnect detection: serial exceptions in the reader thread emit `disconnected` and reset the UI without requiring a manual reconnect cycle
+- Partial-line flush: incomplete lines without a trailing `\n` are emitted after 250 ms of silence
+- Automatic disconnect detection with UI reset
 - RX / TX byte counters and session timer in the status bar
 - Configurable EOL terminator (`\r\n` / `\n` / `\r` / none)
 - Command history navigation (↑ ↓)
@@ -141,9 +141,7 @@ Extracts named numeric channels from RX lines in real time.
 | Unit | Disambiguates multiple tokens (`pv=43608mV 847mA` → Unit `mV` → `43608`) |
 | × / + | Scale and offset applied after extraction |
 
-Parsed values feed the **Graphs**, **Indicators**, and **Trigger Events** tabs.  
-Per-channel "Add to Chart" and "Add to Indicators" toggles control which panels receive each channel.  
-Channel configuration is persisted and restored between sessions.
+Parsed values feed the **Graphs**, **Indicators**, and **Trigger Events** tabs.
 
 ### Graphs tab
 
@@ -153,7 +151,7 @@ Real-time scrolling line chart (pyqtgraph):
 - 60-second rolling window, 20 000-point ring buffer per channel
 - Pan and zoom with mouse
 - Colour legend strip below the chart
-- Pop-out button (`⤢`) detaches the tab into a resizable standalone window; closing the window returns the panel to its original tab position
+- Pop-out button (`⤢`) detaches the tab into a resizable standalone window
 
 ### Indicators tab
 
@@ -169,11 +167,53 @@ Pop-out supported (`⤢`).
 
 Session log of every trigger match:
 
-- Columns: **Time · Trigger name · Raw line** + one column per active parsed channel (snapshot value at match time)
+- Columns: **Time · Trigger name · Raw line** + one column per active parsed channel
 - Alternating row colours, row selection, non-editable
 - Event counter in the header; **Clear** resets the table
 - Pop-out supported (`⤢`)
-- Tab label: **Events**
+
+### Session sharing (Share & Join)
+
+Share live serial output with a colleague anywhere in the world — no extra software required.
+
+**How it works:**
+
+```
+Sharer                  Signaling Server               Viewer
+  │                           │                           │
+  │── register code ─────────>│                           │
+  │   {481203: 1.2.3.4:9876}  │                           │
+  │                           │<── "where is 481203?" ────│
+  │                           │─── 1.2.3.4:9876 ─────────>│
+  │<═══════════════ direct TCP (P2P) ════════════════════>│
+  │         (serial data never touches the server)        │
+```
+
+1. **Share** — click Share → the app discovers your public IP via STUN and registers a 6-digit code with the signaling server. Share the code with your colleague.
+2. **Join** — colleague clicks Join → enters the code → the app looks up your IP:port → direct TCP connection is established.
+
+Serial data flows **directly** between the two machines (P2P). The signaling server only stores a tiny `{code → IP:port}` entry for 1 hour and never sees any data.
+
+**LAN sharing** works without a signaling server — use the "By address" tab in the Join dialog.
+
+**Connection quality** is shown in the status bar as a coloured LED + latency:
+
+| Colour | Latency |
+|--------|---------|
+| 🟢 Green | ≤ 80 ms |
+| 🟡 Yellow | 81 – 250 ms |
+| 🔴 Red | > 250 ms or timeout |
+
+#### Deploying the signaling server (one-time setup)
+
+The `relay/` folder contains a tiny Python server (pure stdlib, zero dependencies):
+
+1. Push this repo to GitHub.
+2. Create a free project on [railway.app](https://railway.app) → Deploy from GitHub → set **Root Directory** to `relay`.
+3. Copy the generated URL (e.g. `https://isodaq-relay.railway.app`).
+4. In IsoDAQ Studio → **Edit → Preferences** → paste the URL into **Signaling server URL**.
+
+All users sharing sessions must configure the same signaling server URL.
 
 ### UI modes
 
@@ -190,7 +230,7 @@ Mode is persisted across sessions.
 
 - **Dark (VS Code)** — default, `#1e1e1e` base with teal accents
 - **Light** — off-white base with green accents
-- Switchable at runtime via `View → Theme`; all open windows including pop-outs update immediately
+- Switchable at runtime via `View → Theme`
 
 ### Auto-update check
 
@@ -198,23 +238,13 @@ On startup (2 s after launch) the app silently queries the GitHub Releases API.
 If a newer version tag is found:
 
 - A dismissible **banner** appears at the top of the window with a "Download" button
-- An **OS system notification** fires (macOS Notification Center / Windows Action Center) — clicking it opens the release page in the browser
+- An **OS system notification** fires (macOS / Windows) — clicking it opens the release page
 
-`Help → Check for Updates` triggers a manual check at any time.  
-`Help → About IsoDAQ Studio` shows the current version.
+`Help → Check for Updates` triggers a manual check at any time.
 
 ### Settings persistence
 
-All session state is saved on exit and restored on next launch:
-
-- Port, baud rate, data format, flow control
-- Terminal options (timestamp, HEX, autoscroll, echo, font size, scrollback limit)
-- Parser channels with scale, offset, unit, prefix, and display flags
-- Active Log Colorizer platforms
-- Trigger definitions
-- Macro definitions
-- Window geometry and splitter positions
-
+All session state is saved on exit and restored on next launch.  
 Config file: `~/.isodaq_studio/config.json`
 
 ---
@@ -226,19 +256,21 @@ SerialReader (QThread)
     │  line_received(line, ts)  ── Qt queued signal → GUI thread
     │
     ├──▶  TriggerEngine.check(line, ts)           thread-safe RLock
-    │         └──▶  callbacks → MainWindow._on_trigger_match_gui()   QMetaObject.invokeMethod
+    │         └──▶  callbacks → MainWindow._on_trigger_match_gui()
     │
     ├──▶  Logger.write_line(line, ts)             lock-free queue.Queue
     │         └──▶  _LogWriter (daemon thread)
-    │                   ├── _FileWriter   → .csv / .json / .txt   batch 256 · flush 200 ms
-    │                   └── _SQLiteWriter → .db WAL               batch 512 · flush 500 ms
+    │                   ├── _FileWriter   → .csv / .json / .txt
+    │                   └── _SQLiteWriter → .db WAL
     │
     └──▶  MainWindow._on_line_received()          GUI thread
-              ├── DataParser.parse(line)          → dict[str, float]
-              ├── ChartPanel.update(parsed)
-              ├── IndicatorPanel.update(parsed)
-              ├── terminal append + log colorizer
-              └── _log("RX", ...)
+              ├── DataParser.parse(line)
+              ├── ChartPanel / IndicatorPanel update
+              ├── SessionServer.feed_line()        → broadcast to viewers
+              └── terminal append + log colorizer
+
+SessionClient (QThread)  ← viewer side
+    └── line_received → MainWindow._on_remote_line()
 ```
 
 ---
@@ -249,13 +281,22 @@ SerialReader (QThread)
 isodaq/
 ├── main.py                           # Entry point, version constant
 ├── requirements.txt
+├── relay/                            # Signaling server (deploy once to Railway/Render)
+│   ├── server.py                     # Lightweight HTTP signaling server
+│   ├── Procfile                      # Railway/Heroku entry point
+│   ├── railway.toml                  # Railway build config
+│   └── README.md                     # Deploy instructions
 ├── core/
 │   ├── serial_reader.py              # QThread serial reader
 │   ├── logger.py                     # Async dual-sink logger
 │   ├── triggers.py                   # Trigger engine
 │   ├── macros.py                     # Macro runner
 │   ├── data_parser.py                # Channel extraction engine
-│   ├── updater.py                    # GitHub Releases update checker (QThread)
+│   ├── updater.py                    # GitHub Releases update checker
+│   ├── session_server.py             # TCP session server (Share side)
+│   ├── session_client.py             # TCP session client (Join side)
+│   ├── signaling.py                  # Signaling server register/lookup client
+│   ├── stun_helper.py                # STUN public IP discovery (stdlib only)
 │   └── notifier.py                   # Telegram / webhook trigger notifier
 └── ui/
     ├── main_window.py                # Main window, layout, signal wiring

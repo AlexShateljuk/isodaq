@@ -45,6 +45,9 @@ from PyQt6.QtWidgets import (
 from core.logger import Logger
 from core.macros import MacroRunner
 from core.serial_reader import SerialReader
+from core.session_server import SessionServer
+from core.session_client import SessionClient
+import core.signaling as signaling
 from core.triggers import Trigger, TriggerEngine
 from core.updater import UpdateChecker
 from core.data_parser import DataParser
@@ -181,6 +184,8 @@ class MainWindow(QMainWindow):
         self._right_panel_visible: bool = True
         self._user_scrolling: bool = False
         self._mode: str = "advanced"
+        self._signaling_url: str = signaling._DEFAULT_URL
+        self._share_session_code: str = ""
 
         self._build_ui()
         self._connect_signals()
@@ -314,6 +319,20 @@ class MainWindow(QMainWindow):
         self._conn_btn.setFixedWidth(100)
         self._conn_btn.clicked.connect(self._toggle_connection)
         r1.addWidget(self._conn_btn)
+        self._share_btn = QPushButton("Share")
+        self._share_btn.setObjectName("shareBtn")
+        self._share_btn.setFixedHeight(28)
+        self._share_btn.setToolTip("Share this serial session with a colleague")
+        self._share_btn.clicked.connect(self._toggle_share)
+        r1.addWidget(self._share_btn)
+
+        self._join_btn = QPushButton("Join")
+        self._join_btn.setObjectName("joinBtn")
+        self._join_btn.setFixedHeight(28)
+        self._join_btn.setToolTip("Connect to a shared session")
+        self._join_btn.clicked.connect(self._open_join_dialog)
+        r1.addWidget(self._join_btn)
+
         self._panel_toggle_btn = QPushButton("⊞")
         self._panel_toggle_btn.setObjectName("panelToggleBtn")
         self._panel_toggle_btn.setFixedSize(28, 28)
@@ -694,6 +713,280 @@ class MainWindow(QMainWindow):
             '<a href="https://github.com/AlexShateljuk/isodaq">github.com/AlexShateljuk/isodaq</a>',
         )
 
+    # ═════════════════════════════════════════════════════════════════════════
+    # Session sharing
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _toggle_share(self) -> None:
+        if hasattr(self, "_session_server") and self._session_server:
+            self._stop_share()
+        else:
+            self._start_share()
+
+    def _start_share(self) -> None:
+        from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout,
+                                     QLabel, QFrame)
+        from core.stun_helper import get_public_ip, get_local_ip
+        import threading
+
+        port = SessionServer.DEFAULT_PORT
+        self._session_server = SessionServer(port, self)
+        self._session_server.client_connected.connect(
+            lambda addr: self._log("SYS", f"[SHARE] {addr} connected", C_SYS))
+        self._session_server.client_disconnected.connect(
+            lambda addr: self._log("SYS", f"[SHARE] {addr} disconnected", C_DIM))
+        self._session_server.error.connect(
+            lambda e: self._log("ERR", f"[SHARE] {e}", C_ERR))
+        self._session_server.start()
+
+        self._share_btn.setText("Stop")
+        self._share_btn.setObjectName("stopShareBtn")
+        self._repolish(self._share_btn)
+        self._log("SYS", f"[SHARE] Session server started on port {port}", C_SYS)
+
+        lan_ip   = get_local_ip()
+        lan_addr = f"{lan_ip}:{port}" if lan_ip else f"?:{port}"
+
+        # Build dialog immediately (shows LAN address right away)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Session sharing active")
+        dlg.setMinimumWidth(400)
+        self._share_dialog = dlg
+
+        form = QFormLayout(dlg)
+        form.setContentsMargins(16, 16, 16, 16)
+        form.setSpacing(10)
+
+        lan_lbl = QLabel(lan_addr)
+        lan_lbl.setObjectName("stat")
+        lan_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("LAN address:", lan_lbl)
+
+        self._share_code_lbl = QLabel("Detecting…")
+        self._share_code_lbl.setObjectName("stat")
+        self._share_code_lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow("Session code:", self._share_code_lbl)
+
+        note = QLabel(
+            "Your colleague opens IsoDAQ Studio → clicks Join → enters the code above.\n"
+            "The code is valid for 1 hour."
+        )
+        note.setWordWrap(True)
+        note.setObjectName("dimLabel")
+        form.addRow(note)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setObjectName("dimLabel")
+        form.addRow(sep)
+
+        lan_note = QLabel("Same network? Share the LAN address directly.")
+        lan_note.setObjectName("dimLabel")
+        form.addRow(lan_note)
+
+        btn = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btn.rejected.connect(dlg.accept)
+        form.addRow(btn)
+
+        # Background: STUN discovery → signaling register
+        def _discover_and_register():
+            pub_ip = None
+            try:
+                pub_ip = get_public_ip()
+                if pub_ip:
+                    self._log("SYS", f"[SHARE] STUN public IP: {pub_ip}", C_DIM)
+            except Exception:
+                pass
+
+            if pub_ip and signaling.is_configured(self._signaling_url):
+                code = signaling.register(pub_ip, port, self._signaling_url)
+                if code:
+                    display = f"{code[:3]} {code[3:]}"
+                    self._share_session_code = code
+                    self._log("SYS", f"[SHARE] Code: {display}", C_SYS)
+                    if hasattr(self, "_share_dialog") and self._share_dialog:
+                        try:
+                            self._share_code_lbl.setText(display)
+                        except Exception:
+                            pass
+                    return
+
+            msg = ("No signaling server configured"
+                   if not signaling.is_configured(self._signaling_url)
+                   else "Could not reach signaling server")
+            self._log("SYS", f"[SHARE] Internet sharing unavailable — {msg}", C_DIM)
+            if hasattr(self, "_share_dialog") and self._share_dialog:
+                try:
+                    self._share_code_lbl.setText("Not available")
+                except Exception:
+                    pass
+
+        threading.Thread(target=_discover_and_register, daemon=True).start()
+        dlg.exec()
+        self._share_dialog = None
+
+    def _stop_share(self) -> None:
+        if hasattr(self, "_session_server") and self._session_server:
+            self._session_server.stop()
+            self._session_server = None
+        self._share_session_code = ""
+        self._share_btn.setText("Share")
+        self._share_btn.setObjectName("shareBtn")
+        self._repolish(self._share_btn)
+        self._log("SYS", "[SHARE] Session stopped", C_DIM)
+
+    def _open_join_dialog(self) -> None:
+        from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout,
+                                     QLabel, QTabWidget, QWidget, QVBoxLayout)
+
+        # If already joined, treat button as Leave
+        if hasattr(self, "_session_client") and self._session_client:
+            self._session_client.stop()
+            self._session_client = None
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Join a session")
+        dlg.setMinimumWidth(360)
+
+        outer = QVBoxLayout(dlg)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
+
+        tabs = QTabWidget()
+        outer.addWidget(tabs)
+
+        # ── Tab 1: Join by code (internet) ────────────────────────────────
+        code_w = QWidget()
+        code_form = QFormLayout(code_w)
+        code_form.setContentsMargins(12, 12, 12, 0)
+        code_form.setSpacing(10)
+
+        code_note = QLabel("Enter the 6-digit code shown on the host's Share dialog.")
+        code_note.setWordWrap(True)
+        code_note.setObjectName("dimLabel")
+        code_form.addRow(code_note)
+
+        code_edit = QLineEdit()
+        code_edit.setPlaceholderText("e.g.  481 203")
+        code_edit.setMaxLength(7)
+        code_form.addRow("Code:", code_edit)
+
+        tabs.addTab(code_w, "By code")
+
+        # ── Tab 2: Join by address (LAN) ───────────────────────────────────
+        addr_w = QWidget()
+        addr_form = QFormLayout(addr_w)
+        addr_form.setContentsMargins(12, 12, 12, 0)
+        addr_form.setSpacing(10)
+
+        addr_note = QLabel("Enter the LAN address shown on the host's Share dialog.")
+        addr_note.setWordWrap(True)
+        addr_note.setObjectName("dimLabel")
+        addr_form.addRow(addr_note)
+
+        addr_edit = QLineEdit()
+        addr_edit.setPlaceholderText("192.168.x.x:9876")
+        addr_form.addRow("Address:", addr_edit)
+
+        tabs.addTab(addr_w, "By address (LAN)")
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        outer.addWidget(btns)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if tabs.currentIndex() == 0:
+            # Code-based join
+            raw_code = code_edit.text().strip()
+            if not raw_code:
+                return
+            if not signaling.is_configured(self._signaling_url):
+                QMessageBox.warning(self, "No signaling server",
+                                    "A signaling server URL is required to join by code.\n"
+                                    "Ask the host for the LAN address instead.")
+                return
+            result = signaling.lookup(raw_code, self._signaling_url)
+            if not result:
+                QMessageBox.warning(self, "Code not found",
+                                    "Session not found or expired.\n"
+                                    "Ask the host to check their session code.")
+                return
+            host, port = result
+            self._log("SYS", f"[JOIN] Code {raw_code.strip()} → {host}:{port}", C_DIM)
+        else:
+            # Address-based join
+            raw = addr_edit.text().strip()
+            if not raw:
+                return
+            try:
+                host, port_str = raw.rsplit(":", 1)
+                port = int(port_str)
+            except ValueError:
+                QMessageBox.warning(self, "Invalid address",
+                                    "Use the format  host:port  e.g. 192.168.1.5:9876")
+                return
+
+        self._connect_to_session(host, port)
+
+    def _connect_to_session(self, host: str, port: int) -> None:
+        if hasattr(self, "_session_client") and self._session_client:
+            self._session_client.stop()
+
+        client = SessionClient(host, port, self)
+        client.connected.connect(
+            lambda addr: self._log("SYS", f"[JOIN] Connected to {addr}", C_SYS))
+        client.disconnected.connect(self._on_session_disconnected)
+        client.error.connect(lambda e: self._log("ERR", f"[JOIN] {e}", C_ERR))
+        client.line_received.connect(self._on_remote_line)
+        client.latency_updated.connect(self._on_latency_updated)
+        client.start()
+        self._session_client = client
+        self._sb_ping.show()
+        self._sb_ping.setText("● … ms")
+        self._sb_ping.setStyleSheet("color:#6a6a7a")
+        self._join_btn.setText("Leave")
+        self._join_btn.setObjectName("stopShareBtn")
+        self._repolish(self._join_btn)
+
+    def _on_session_disconnected(self) -> None:
+        self._log("SYS", "[JOIN] Session ended", C_DIM)
+        self._sb_ping.hide()
+        self._join_btn.setText("Join")
+        self._join_btn.setObjectName("joinBtn")
+        self._repolish(self._join_btn)
+
+    def _on_latency_updated(self, ms: int) -> None:
+        if ms < 0:
+            self._sb_ping.setText("● timeout")
+            self._sb_ping.setStyleSheet("color:#ef4444")
+        elif ms <= 80:
+            self._sb_ping.setText(f"● {ms} ms")
+            self._sb_ping.setStyleSheet("color:#4ec994")   # green
+        elif ms <= 250:
+            self._sb_ping.setText(f"● {ms} ms")
+            self._sb_ping.setStyleSheet("color:#f59e0b")   # yellow
+        else:
+            self._sb_ping.setText(f"● {ms} ms")
+            self._sb_ping.setStyleSheet("color:#ef4444")   # red
+
+    def _on_remote_line(self, line: str, ts: float, kind: str) -> None:
+        """Handle a line received from a remote session — display + parse only."""
+        import datetime
+        ts_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:12]
+        color = C_RX if kind == "rx" else C_SYS
+        self._log("REM", line, color, ts_str)
+        parsed = self._parser.parse(line)
+        if parsed:
+            self._chart_panel.update(parsed)
+            self._indicator_panel.update(parsed)
+
     # ── Statusbar ─────────────────────────────────────────────────────────────
 
     def _build_statusbar(self):
@@ -709,6 +1002,12 @@ class MainWindow(QMainWindow):
         self._sb_conn.setStyleSheet("color:#ef4444")
         for w in (self._sb_conn, self._sb_rx, self._sb_tx, self._sb_rate, self._sb_err):
             sb.addWidget(w)
+
+        # Remote session quality indicator — hidden until JOIN is active
+        self._sb_ping = QLabel("● — ms")
+        self._sb_ping.setToolTip("Remote session latency (round-trip ping)")
+        self._sb_ping.hide()
+        sb.addPermanentWidget(self._sb_ping)
         sb.addPermanentWidget(self._sb_sess)
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -772,6 +1071,10 @@ class MainWindow(QMainWindow):
 
         # Feed macro runner (for wait-for pattern matching)
         self._macro_runner.feed_rx_line(line)
+
+        # Broadcast to any connected session clients
+        if hasattr(self, "_session_server") and self._session_server:
+            self._session_server.feed_line(line, "rx")
 
         # Display — apply log-level color if a platform is active
         log_color = match_log_color(line, self._log_colorizer_enabled)
@@ -1266,6 +1569,9 @@ class MainWindow(QMainWindow):
         if "mode" in data:
             self._set_mode(data["mode"])
 
+        if "signaling_url" in data:
+            self._signaling_url = str(data["signaling_url"])
+
     def _save_settings(self) -> None:
         """Persists all UI state to ~/.isodaq_studio/config.json."""
         try:
@@ -1292,20 +1598,21 @@ class MainWindow(QMainWindow):
                 "macros":     self._macro_panel.to_dict_list(),
                 "sections":   {k: v.collapsed for k, v in self._sidebar_sections.items()},
                 "indicator_thresholds": self._indicator_panel.get_thresholds(),
-                "mode":       self._mode,
+                "mode":          self._mode,
+                "signaling_url": self._signaling_url,
             }, indent=2))
         except Exception:
             import traceback
             traceback.print_exc()   # visible in terminal during development
 
     def _open_preferences(self) -> None:
-        """Opens the Preferences dialog (scrollback limit, future options)."""
+        """Opens the Preferences dialog (scrollback limit, signaling URL)."""
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QSpinBox
 
         dlg = QDialog(self)
         tint_titlebar(dlg)
         dlg.setWindowTitle("Preferences")
-        dlg.setMinimumWidth(320)
+        dlg.setMinimumWidth(380)
         dlg.setModal(True)
 
         form = QFormLayout(dlg)
@@ -1318,9 +1625,23 @@ class MainWindow(QMainWindow):
         scrollback_spin.setValue(self._scrollback_limit)
         scrollback_spin.setSuffix("  lines")
 
-        lbl = QLabel("Terminal scrollback limit")
-        lbl.setObjectName("dimLabel")
-        form.addRow(lbl, scrollback_spin)
+        lbl_sb = QLabel("Terminal scrollback limit")
+        lbl_sb.setObjectName("dimLabel")
+        form.addRow(lbl_sb, scrollback_spin)
+
+        sig_edit = QLineEdit()
+        sig_edit.setPlaceholderText("https://your-relay.railway.app")
+        sig_edit.setText(self._signaling_url)
+        lbl_sig = QLabel("Signaling server URL")
+        lbl_sig.setObjectName("dimLabel")
+        form.addRow(lbl_sig, sig_edit)
+
+        sig_hint = QLabel(
+            "Deploy relay/server.py to Railway/Render once — all users share the same URL."
+        )
+        sig_hint.setWordWrap(True)
+        sig_hint.setObjectName("dimLabel")
+        form.addRow(sig_hint)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -1331,6 +1652,8 @@ class MainWindow(QMainWindow):
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._scrollback_limit = scrollback_spin.value()
+            self._signaling_url = sig_edit.text().strip()
+            self._save_settings()
 
     # ═════════════════════════════════════════════════════════════════════════
     # Close
