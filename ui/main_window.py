@@ -816,7 +816,7 @@ class MainWindow(QMainWindow):
                 self._log("SYS", "[SHARE] STUN failed — no public IP (check internet)", C_DIM)
 
             # ── 2. Signaling URL check ─────────────────────────────────────────
-            base = (self._signaling_url or signaling._DEFAULT_URL).rstrip("/")
+            base = signaling.normalize(self._signaling_url)
             if not base:
                 self._log("SYS",
                           "[SHARE] Internet sharing unavailable — no signaling server URL.\n"
@@ -949,7 +949,7 @@ class MainWindow(QMainWindow):
             raw_code = code_edit.text().strip()
             if not raw_code:
                 return
-            base = (self._signaling_url or signaling._DEFAULT_URL).rstrip("/")
+            base = signaling.normalize(self._signaling_url)
             if not base:
                 QMessageBox.warning(self, "No signaling server",
                                     "A signaling server URL is required to join by code.\n"

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import urllib.request
 from typing import Optional
+from urllib.parse import urlparse
 
 # ── Set this after deploying relay/server.py ──────────────────────────────────
 _DEFAULT_URL = "https://isodaq-production.up.railway.app"
@@ -24,8 +25,26 @@ def is_configured(url: str = "") -> bool:
     return bool(url or _DEFAULT_URL)
 
 
+def normalize(url: str) -> str:
+    """
+    Reduce any user-entered URL to just scheme://host[:port].
+
+    Guards against pasted URLs that include a stray path (e.g. ".../health"),
+    which would otherwise turn "{base}/register" into a 404.
+    """
+    raw = (url or _DEFAULT_URL).strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    p = urlparse(raw)
+    if not p.netloc:
+        return ""
+    return f"{p.scheme}://{p.netloc}"
+
+
 def _base(url: str) -> str:
-    return (url or _DEFAULT_URL).rstrip("/")
+    return normalize(url)
 
 
 def register(ip: str, port: int, url: str = "") -> Optional[str]:
