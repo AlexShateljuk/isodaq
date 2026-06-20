@@ -139,8 +139,12 @@ QStatusBar {{
 }}
 
 /* ── Tabs ───────────────────────────────────────────────── */
-QTabWidget::pane {{ border: none; background: {c['bg']}; }}
+QTabWidget {{ background: {c['bg2']}; }}
+QTabWidget::pane {{
+    border: none; border-top: 1px solid {c['border']}; background: {c['bg']};
+}}
 QTabBar {{
+    background: {c['bg2']};
     font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
 }}
 QTabBar::tab {{
@@ -402,13 +406,17 @@ QWidget#inputBar {{
     background: {c['bg2']}; border-top: 1px solid {c['border']};
 }}
 QWidget#searchBar {{
-    background: {c['bg3']}; border-top: 1px solid {c['border']};
+    background: {c['bg2']}; border-top: 1px solid {c['border']};
 }}
 QLineEdit#searchEdit {{
     border: 1px solid {c['accent_brd']};
     background: {c['terminal']};
     font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 11px;
 }}
+QPushButton#searchNav {{
+    padding: 0; font-size: 14px; color: {c['fg']};
+}}
+QPushButton#searchNav:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
 QWidget#sidebar {{
     background: {c['bg2']}; border-left: 1px solid {c['border']};
 }}

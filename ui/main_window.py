@@ -310,43 +310,44 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(10, 4, 10, 4)
         h.setSpacing(6)
 
+        # Compact glyph button: inline padding:0 so the single char isn't clipped
+        # by the global QPushButton padding (the cause of the blank boxes).
+        def _nav(glyph: str, tip: str, slot) -> QPushButton:
+            b = QPushButton(glyph)
+            b.setObjectName("searchNav")
+            b.setFixedSize(30, 26)
+            b.setStyleSheet("padding:0; font-size:14px;")
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            return b
+
         h.addWidget(self._lbl("Find", dim=True))
         self._search_edit = QLineEdit()
         self._search_edit.setObjectName("searchEdit")
-        self._search_edit.setPlaceholderText("Search terminal…  (Enter / Shift+Enter)")
+        self._search_edit.setPlaceholderText("Search terminal…")
+        self._search_edit.setMinimumWidth(220)
+        self._search_edit.setMaximumWidth(360)
         self._search_edit.installEventFilter(self)
         self._search_edit.textChanged.connect(self._update_search)
         h.addWidget(self._search_edit)
 
-        self._search_case = QCheckBox("Aa")
-        self._search_case.setToolTip("Case sensitive")
-        self._search_case.stateChanged.connect(self._update_search)
-        h.addWidget(self._search_case)
-
-        prev_btn = QPushButton("▲")
-        prev_btn.setFixedSize(26, 24)
-        prev_btn.setToolTip("Previous match (Shift+Enter)")
-        prev_btn.clicked.connect(lambda: self._search_step(-1))
-        h.addWidget(prev_btn)
-
-        next_btn = QPushButton("▼")
-        next_btn.setFixedSize(26, 24)
-        next_btn.setToolTip("Next match (Enter)")
-        next_btn.clicked.connect(lambda: self._search_step(+1))
-        h.addWidget(next_btn)
+        h.addWidget(_nav("▲", "Previous match (Shift+Enter)", lambda: self._search_step(-1)))
+        h.addWidget(_nav("▼", "Next match (Enter)", lambda: self._search_step(+1)))
 
         self._search_count = QLabel("0/0")
         self._search_count.setObjectName("dimLabelMono")
-        self._search_count.setMinimumWidth(54)
+        self._search_count.setMinimumWidth(46)
         self._search_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         h.addWidget(self._search_count)
 
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(26, 24)
-        close_btn.setToolTip("Close (Esc)")
-        close_btn.clicked.connect(self._close_search)
-        h.addWidget(close_btn)
+        self._search_case = QCheckBox("Aa")
+        self._search_case.setToolTip("Match case")
+        self._search_case.stateChanged.connect(self._update_search)
+        h.addWidget(self._search_case)
 
+        h.addWidget(_nav("✕", "Close (Esc)", self._close_search))
+
+        h.addStretch()   # left-align the whole group
         bar.hide()
         return bar
 
