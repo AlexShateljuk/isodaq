@@ -44,3 +44,11 @@ IDEAS.md
 
 # Claude Code
 .claude/
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
+
+# Dev tools / test scripts
+tools/
