@@ -174,29 +174,48 @@ Session log of every trigger match:
 
 ### Session sharing (Share & Join)
 
-Share live serial output with a colleague anywhere in the world — no extra software required.
+Share live serial output with a colleague anywhere in the world — both sides just run
+IsoDAQ Studio. No browser, no account, no extra dependencies (pure stdlib on both ends).
+One host can stream to **multiple viewers** at once.
 
-**How it works:**
+There are two ways to join, for two situations:
+
+**1. By address — same network (LAN / VPN).** Direct TCP, lossless, lowest latency.
 
 ```
-Sharer                  Signaling Server               Viewer
-  │                           │                           │
-  │── register code ─────────>│                           │
-  │   {481203: 1.2.3.4:9876}  │                           │
-  │                           │<── "where is 481203?" ────│
-  │                           │─── 1.2.3.4:9876 ─────────>│
-  │<═══════════════ direct TCP (P2P) ════════════════════>│
-  │         (serial data never touches the server)        │
+Host  ──────────  direct TCP :9876  ──────────  Viewer
+   (192.168.x.x — shown in the Share dialog)
 ```
 
-1. **Share** — click Share → the app discovers your public IP via STUN and registers a 6-digit code with the signaling server. Share the code with your colleague.
-2. **Join** — colleague clicks Join → enters the code → the app looks up your IP:port → direct TCP connection is established.
+**2. By code — over the internet (through any NAT/firewall).** A small hosted
+signaling+relay server brokers the connection; no router setup needed.
 
-Serial data flows **directly** between the two machines (P2P). The signaling server only stores a tiny `{code → IP:port}` entry for 1 hour and never sees any data.
+```
+Host                     Signaling + Relay Server                Viewer(s)
+  │── register (STUN IP) ───────>│                                  │
+  │      → 6-digit code          │<──── look up code ───────────────│
+  │── push serial lines ────────>│──── long-poll / deliver ────────>│
+  │                              │   (relay forwards the stream)    │
+```
 
-**LAN sharing** works without a signaling server — use the "By address" tab in the Join dialog.
+1. **Share** — click Share. The app starts the local TCP server, discovers your public
+   IP via STUN, registers a **6-digit code**, and enables the relay. The dialog shows the
+   code, the LAN address, and a live **Viewers: N** count.
+2. **Join** — your colleague clicks Join → **By code** → types the code. Data flows over
+   the relay, so it works even behind strict NAT/corporate firewalls.
 
-**Connection quality** is shown in the status bar as a coloured LED + latency:
+When you click **Stop**, all viewers are notified and leave automatically.
+
+> **LAN vs relay trade-off:** the LAN/direct-TCP path is lossless and low-latency. The
+> relay path is **best-effort** — under sustained very high throughput, or on a network
+> hiccup, individual lines may be dropped from the relayed stream. The host's own
+> terminal and data logger always capture the complete record regardless.
+
+**Recording a shared session:** a viewer can press **Start** in the Logger panel to record
+the received stream to CSV/DB, exactly like a local serial feed.
+
+**Connection quality** is shown in the status bar as a coloured LED + latency (TCP ping in
+LAN mode, relay `/health` round-trip in code mode):
 
 | Colour | Latency |
 |--------|---------|
@@ -204,16 +223,19 @@ Serial data flows **directly** between the two machines (P2P). The signaling ser
 | 🟡 Yellow | 81 – 250 ms |
 | 🔴 Red | > 250 ms or timeout |
 
-#### Deploying the signaling server (one-time setup)
+A public relay is already configured by default, so sharing works out of the box.
 
-The `relay/` folder contains a tiny Python server (pure stdlib, zero dependencies):
+#### Hosting your own relay (optional)
+
+The `relay/` folder contains the server (pure stdlib `http.server`, zero dependencies):
 
 1. Push this repo to GitHub.
 2. Create a free project on [railway.app](https://railway.app) → Deploy from GitHub → set **Root Directory** to `relay`.
-3. Copy the generated URL (e.g. `https://isodaq-relay.railway.app`).
+3. Copy the generated URL (e.g. `https://your-relay.railway.app`).
 4. In IsoDAQ Studio → **Edit → Preferences** → paste the URL into **Signaling server URL**.
 
-All users sharing sessions must configure the same signaling server URL.
+All users sharing a session must point at the same relay URL. Session codes are held in
+memory only (1-hour TTL) and are invalidated if the relay restarts.
 
 ### UI modes
 
@@ -281,10 +303,12 @@ SessionClient (QThread)  ← viewer side
 isodaq/
 ├── main.py                           # Entry point, version constant
 ├── requirements.txt
-├── relay/                            # Signaling server (deploy once to Railway/Render)
-│   ├── server.py                     # Lightweight HTTP signaling server
+├── relay/                            # Signaling + relay server (deploy once to Railway)
+│   ├── server.py                     # HTTP signaling + relay (fan-out, pure stdlib)
 │   ├── Procfile                      # Railway/Heroku entry point
-│   ├── railway.toml                  # Railway build config
+│   ├── nixpacks.toml                 # Pin Python build (don't auto-run main.py)
+│   ├── railway.toml                  # Railway build/health config
+│   ├── requirements.txt              # empty — stdlib only
 │   └── README.md                     # Deploy instructions
 ├── core/
 │   ├── serial_reader.py              # QThread serial reader

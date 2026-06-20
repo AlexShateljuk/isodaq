@@ -20,6 +20,7 @@ import argparse
 import json
 import sys
 import time
+import urllib.error as ue
 import urllib.request as ur
 from pathlib import Path
 
@@ -33,6 +34,10 @@ def post(base: str, path: str, obj: dict, timeout: float = 10.0) -> dict:
         return json.loads(r.read())
 
 
+def register(base: str) -> str:
+    return post(base, "/register", {"ip": "0.0.0.0", "port": 9876})["code"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=DEFAULT_BASE)
@@ -43,13 +48,15 @@ def main() -> int:
     args = ap.parse_args()
     base = args.base.rstrip("/")
 
-    code = post(base, "/register", {"ip": "0.0.0.0", "port": 9876})["code"]
-    print(f"\n  ┌─────────────────────────────────────────────┐")
-    print(f"  │  SESSION CODE:  {code[:3]} {code[3:]}                     │")
-    print(f"  └─────────────────────────────────────────────┘")
-    print(f"  Relay: {base}\n")
-    print(f"  On the SLAVE machine run:")
-    print(f"      python tools/loss_receiver.py {code}\n")
+    def announce(c: str) -> None:
+        print(f"\n  ┌─────────────────────────────────────────────┐")
+        print(f"  │  SESSION CODE:  {c[:3]} {c[3:]}                     │")
+        print(f"  └─────────────────────────────────────────────┘")
+        print(f"  Relay: {base}")
+        print(f"  In IsoDAQ Studio on the slave: Join → By code → {c}\n", flush=True)
+
+    code = register(base)
+    announce(code)
     print(f"  Waiting for a viewer to connect ...", flush=True)
 
     waited = 0.0
@@ -59,12 +66,20 @@ def main() -> int:
                      {"messages": [{"t": time.time(), "d": "", "k": "_hb"}]})
             if int(r.get("viewers", 0)) >= 1:
                 break
+        except ue.HTTPError as e:
+            if e.code == 404:
+                # Relay restarted and orphaned our code — re-register a fresh one
+                code = register(base)
+                print("  Relay restarted — NEW code below, re-enter it on the slave:")
+                announce(code)
+            else:
+                print(f"  (waiting — HTTP {e.code})")
         except Exception as e:
-            print(f"  (waiting — push error: {e})")
+            print(f"  (waiting — error: {e})")
         time.sleep(1.0)
         waited += 1.0
-        if waited % 5 == 0:
-            print(f"  ... still waiting ({int(waited)}s)")
+        if waited % 10 == 0:
+            print(f"  ... still waiting ({int(waited)}s)  code {code}")
         if waited >= args.wait:
             print("  No viewer joined in time — aborting.")
             return 1
