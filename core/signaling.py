@@ -10,6 +10,7 @@ The URL can also be overridden per-call if the user configures their own relay.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import urllib.request
 from typing import Optional
@@ -25,12 +26,24 @@ def is_configured(url: str = "") -> bool:
     return bool(url or _DEFAULT_URL)
 
 
+def _is_local(host: str) -> bool:
+    """True for localhost / loopback / private-LAN hosts (self-hosted relays)."""
+    if host in ("", "localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False   # a public hostname like *.railway.app
+
+
 def normalize(url: str) -> str:
     """
     Reduce any user-entered URL to just scheme://host[:port].
 
-    Guards against pasted URLs that include a stray path (e.g. ".../health"),
-    which would otherwise turn "{base}/register" into a 404.
+    - Strips stray paths (e.g. ".../health") so "{base}/register" can't 404.
+    - Upgrades http→https for public hosts (hosted relays serve HTTPS only);
+      plain http is preserved for localhost / LAN self-hosted relays.
     """
     raw = (url or _DEFAULT_URL).strip()
     if not raw:
@@ -40,7 +53,10 @@ def normalize(url: str) -> str:
     p = urlparse(raw)
     if not p.netloc:
         return ""
-    return f"{p.scheme}://{p.netloc}"
+    scheme = p.scheme
+    if scheme == "http" and not _is_local(p.hostname or ""):
+        scheme = "https"
+    return f"{scheme}://{p.netloc}"
 
 
 def _base(url: str) -> str:

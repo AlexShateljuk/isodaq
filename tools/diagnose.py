@@ -11,6 +11,7 @@ here means the same 404 in the app — and the output shows why.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import sys
 import urllib.error
@@ -20,6 +21,16 @@ from urllib.parse import urlparse
 
 _DEFAULT_URL = "https://isodaq-production.up.railway.app"
 _CONFIG = Path.home() / ".isodaq_studio" / "config.json"
+
+
+def _is_local(host: str) -> bool:
+    if host in ("", "localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        return False
 
 
 def normalize(url: str) -> str:
@@ -32,7 +43,10 @@ def normalize(url: str) -> str:
     p = urlparse(raw)
     if not p.netloc:
         return ""
-    return f"{p.scheme}://{p.netloc}"
+    scheme = p.scheme
+    if scheme == "http" and not _is_local(p.hostname or ""):
+        scheme = "https"
+    return f"{scheme}://{p.netloc}"
 
 
 def main() -> int:
