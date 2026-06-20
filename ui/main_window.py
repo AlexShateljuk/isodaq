@@ -1059,7 +1059,7 @@ class MainWindow(QMainWindow):
             self._sb_ping.setStyleSheet("color:#ef4444")   # red
 
     def _on_remote_line(self, line: str, ts: float, kind: str) -> None:
-        """Handle a line received from a remote session — display + parse only."""
+        """Handle a line received from a remote session — display, log and parse."""
         if self.sender() is not self._session_client:
             return   # stale client (superseded long-poll) — drop its lines
         import datetime
@@ -1069,6 +1069,11 @@ class MainWindow(QMainWindow):
         else:
             color = C_RX if kind == "rx" else C_SYS
             self._log("REM", line, color, ts_str)
+
+        # Persist received session data when logging is active (no-op otherwise).
+        # Lets a viewer record a shared session to CSV/DB just like a serial feed.
+        self._logger.write_line(line, ts_str)
+
         parsed = self._parser.parse(line)
         if parsed:
             self._chart_panel.update(parsed)
