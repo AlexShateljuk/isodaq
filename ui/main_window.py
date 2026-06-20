@@ -737,6 +737,7 @@ class MainWindow(QMainWindow):
             lambda addr: self._log("SYS", f"[SHARE] {addr} disconnected", C_DIM))
         self._session_server.error.connect(
             lambda e: self._log("ERR", f"[SHARE] {e}", C_ERR))
+        self._session_server.viewer_count_changed.connect(self._on_viewer_count)
         self._session_server.start()
 
         self._share_btn.setText("Stop")
@@ -767,6 +768,10 @@ class MainWindow(QMainWindow):
         self._share_code_lbl.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Session code:", self._share_code_lbl)
+
+        self._share_viewers_lbl = QLabel("0 connected")
+        self._share_viewers_lbl.setObjectName("stat")
+        form.addRow("Viewers:", self._share_viewers_lbl)
 
         note = QLabel(
             "Your colleague opens IsoDAQ Studio → clicks Join → enters the code above.\n"
@@ -862,11 +867,22 @@ class MainWindow(QMainWindow):
         dlg.exec()
         self._share_dialog = None
 
+    def _on_viewer_count(self, n: int) -> None:
+        """Relay viewer count changed — update the Share dialog and log it."""
+        label = f"{n} connected" if n != 1 else "1 connected"
+        if hasattr(self, "_share_viewers_lbl") and self._share_viewers_lbl:
+            try:
+                self._share_viewers_lbl.setText(label)
+            except RuntimeError:
+                pass   # dialog/label already destroyed
+        self._log("SYS", f"[SHARE] Viewers: {n}", C_DIM)
+
     def _stop_share(self) -> None:
         if hasattr(self, "_session_server") and self._session_server:
             self._session_server.stop()
             self._session_server = None
         self._share_session_code = ""
+        self._share_viewers_lbl  = None
         self._share_btn.setText("Share")
         self._share_btn.setObjectName("shareBtn")
         self._repolish(self._share_btn)
@@ -1000,6 +1016,7 @@ class MainWindow(QMainWindow):
             lambda addr: self._log("SYS", f"[JOIN] Connected to {addr}", C_SYS))
         client.disconnected.connect(self._on_session_disconnected)
         client.error.connect(lambda e: self._log("ERR", f"[JOIN] {e}", C_ERR))
+        client.host_closed.connect(self._on_host_closed)
         client.line_received.connect(self._on_remote_line)
         client.latency_updated.connect(self._on_latency_updated)
         client.start()
@@ -1009,9 +1026,15 @@ class MainWindow(QMainWindow):
         self._join_btn.setObjectName("stopShareBtn")
         self._repolish(self._join_btn)
 
+    def _on_host_closed(self) -> None:
+        if self.sender() is not self._session_client:
+            return   # stale client — ignore
+        self._log("SYS", "[JOIN] Host closed the session — leaving", C_SYS)
+
     def _on_session_disconnected(self) -> None:
-        if self._session_client is None:
-            return   # already handled by Leave button
+        # Ignore signals from a superseded client (stale long-poll finishing late)
+        if self.sender() is not self._session_client:
+            return
         self._session_client = None
         self._log("SYS", "[JOIN] Session ended", C_DIM)
         self._sb_ping.hide()
@@ -1020,6 +1043,8 @@ class MainWindow(QMainWindow):
         self._repolish(self._join_btn)
 
     def _on_latency_updated(self, ms: int) -> None:
+        if self.sender() is not self._session_client:
+            return   # stale client — ignore
         if ms < 0:
             self._sb_ping.setText("● timeout")
             self._sb_ping.setStyleSheet("color:#ef4444")
@@ -1035,6 +1060,8 @@ class MainWindow(QMainWindow):
 
     def _on_remote_line(self, line: str, ts: float, kind: str) -> None:
         """Handle a line received from a remote session — display + parse only."""
+        if self.sender() is not self._session_client:
+            return   # stale client (superseded long-poll) — drop its lines
         import datetime
         ts_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:12]
         if kind == "tx":

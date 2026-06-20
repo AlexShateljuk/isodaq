@@ -29,9 +29,10 @@ class SessionServer(QObject):
     pushes to the relay server too.
     """
 
-    client_connected    = pyqtSignal(str)   # remote address string
-    client_disconnected = pyqtSignal(str)
-    error               = pyqtSignal(str)
+    client_connected     = pyqtSignal(str)   # remote address string
+    client_disconnected  = pyqtSignal(str)
+    error                = pyqtSignal(str)
+    viewer_count_changed = pyqtSignal(int)    # relay viewers currently watching
 
     DEFAULT_PORT = 9876
 
@@ -45,9 +46,10 @@ class SessionServer(QObject):
         self._thread:  Optional[threading.Thread] = None
 
         # Relay state
-        self._relay_url:  str = ""
-        self._relay_code: str = ""
-        self._relay_q:    _queue.Queue = _queue.Queue(maxsize=500)
+        self._relay_url:    str = ""
+        self._relay_code:   str = ""
+        self._relay_q:      _queue.Queue = _queue.Queue(maxsize=500)
+        self._last_viewers: int = -1
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -58,6 +60,22 @@ class SessionServer(QObject):
 
     def stop(self) -> None:
         self._running = False
+
+        # Tell relay viewers the session is ending so they auto-leave
+        if self._relay_url and self._relay_code:
+            try:
+                url  = f"{self._relay_url}/tunnel/{self._relay_code}/push"
+                body = json.dumps(
+                    {"messages": [{"t": time.time(), "d": "", "k": "_end"}]}
+                ).encode()
+                _ur.urlopen(
+                    _ur.Request(url, data=body,
+                                headers={"Content-Type": "application/json"}),
+                    timeout=3,
+                )
+            except Exception:
+                pass
+
         if self._sock:
             try:
                 self._sock.close()
@@ -170,30 +188,43 @@ class SessionServer(QObject):
             self.client_disconnected.emit(addr)
 
     def _relay_worker(self) -> None:
-        """Background thread: drains relay_q and POSTs batches to the relay server."""
-        url = f"{self._relay_url}/tunnel/{self._relay_code}/push"
+        """
+        Background thread: POSTs queued lines to the relay in batches.
+        Sends a heartbeat when idle so viewers know the host is alive and so
+        the viewer count stays fresh. Reads the viewer count from each response.
+        """
+        url       = f"{self._relay_url}/tunnel/{self._relay_code}/push"
+        last_send = 0.0
         while self._running:
-            # Wait for the first message
+            batch: list[dict] = []
             try:
-                first = self._relay_q.get(timeout=1.0)
+                batch.append(self._relay_q.get(timeout=2.0))
             except _queue.Empty:
-                continue
-
-            # Collect any additional queued messages (non-blocking)
-            batch = [first]
+                pass
             while len(batch) < 50:
                 try:
                     batch.append(self._relay_q.get_nowait())
                 except _queue.Empty:
                     break
 
-            # POST batch
+            now = time.time()
+            if not batch:
+                if now - last_send < 4.0:
+                    continue
+                batch = [{"t": now, "d": "", "k": "_hb"}]   # idle heartbeat
+
             try:
                 payload = json.dumps({"messages": batch}).encode()
                 req     = _ur.Request(
                     url, data=payload,
                     headers={"Content-Type": "application/json"},
                 )
-                _ur.urlopen(req, timeout=5)
+                with _ur.urlopen(req, timeout=5) as r:
+                    resp = json.loads(r.read())
+                last_send = now
+                vc = int(resp.get("viewers", -1))
+                if vc >= 0 and vc != self._last_viewers:
+                    self._last_viewers = vc
+                    self.viewer_count_changed.emit(vc)
             except Exception:
                 pass   # relay errors are non-fatal; LAN TCP still works

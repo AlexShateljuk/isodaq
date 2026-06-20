@@ -5,14 +5,17 @@ IsoDAQ Signaling + Relay Server
 Endpoints:
   POST /register               {"ip":"1.2.3.4","port":9876}  →  {"code":"481203"}
   GET  /lookup/481203          →  {"ip":"1.2.3.4","port":9876}  or 404
-  POST /tunnel/481203/push     body: {"messages":[...]}  →  {"ok":true}
-  GET  /tunnel/481203/poll     →  {"messages":[...]}  (long-poll, up to ?timeout=25 s)
+  POST /tunnel/481203/push     {"messages":[...]}  →  {"ok":true,"viewers":N}
+  GET  /tunnel/481203/poll?id=X&timeout=20   →  {"messages":[...]}
   GET  /health                 →  {"status":"ok","sessions":N}
 
-Sessions and tunnels expire after 1 hour.
+Each tunnel fans messages out to every connected viewer (its own queue), so
+multiple viewers can watch one session. A short recent-message buffer lets a
+viewer that joins mid-stream catch up. Sessions expire after 1 hour.
 """
 from __future__ import annotations
 
+import collections
 import json
 import os
 import queue
@@ -25,37 +28,75 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 _sessions: dict[str, dict] = {}
 _lock     = threading.Lock()
 _TTL      = 3600   # seconds
+_VIEWER_TTL = 30   # seconds a viewer is considered present after its last poll
 
 
 # ── Tunnel session ─────────────────────────────────────────────────────────────
 
+class _Viewer:
+    def __init__(self) -> None:
+        self.q:     queue.Queue       = queue.Queue(maxsize=10_000)
+        self.event: threading.Event   = threading.Event()
+        self.last:  float             = time.time()
+
+
 class _TunnelSession:
-    """Per-session message queue shared by one sharer (push) and any viewers (poll)."""
+    """Fan-out hub: one sharer pushes, N viewers each poll their own queue."""
 
     def __init__(self) -> None:
-        self._q:     queue.Queue = queue.Queue(maxsize=10_000)
-        self._event: threading.Event = threading.Event()
-        self.expires: float = time.time() + _TTL
+        self.viewers: dict[str, _Viewer] = {}
+        self.recent:  collections.deque  = collections.deque(maxlen=200)
+        self.lock     = threading.Lock()
+        self.expires  = time.time() + _TTL
 
     def push(self, messages: list[dict]) -> None:
-        for msg in messages:
-            try:
-                self._q.put_nowait(msg)
-            except queue.Full:
-                pass
-        self._event.set()
+        # Buffer only displayable lines (skip control/heartbeat msgs)
+        keep = [m for m in messages if not str(m.get("k", "")).startswith("_")]
+        with self.lock:
+            for m in keep:
+                self.recent.append(m)
+            viewers = list(self.viewers.values())
+        for v in viewers:
+            for m in messages:
+                try:
+                    v.q.put_nowait(m)
+                except queue.Full:
+                    pass
+            v.event.set()
 
-    def poll(self, timeout: float = 20.0) -> list[dict]:
-        """Block until data arrives or timeout; return list of message dicts."""
-        self._event.wait(timeout=timeout)
-        self._event.clear()
+    def poll(self, viewer_id: str, timeout: float) -> list[dict]:
+        with self.lock:
+            v   = self.viewers.get(viewer_id)
+            new = v is None
+            if new:
+                v = _Viewer()
+                for m in list(self.recent):   # let a mid-stream viewer catch up
+                    try:
+                        v.q.put_nowait(m)
+                    except queue.Full:
+                        break
+                self.viewers[viewer_id] = v
+            v.last = time.time()
+
+        if v.q.empty():
+            v.event.wait(timeout=timeout)
+            v.event.clear()
+
         out: list[dict] = []
-        while not self._q.empty():
+        while not v.q.empty():
             try:
-                out.append(self._q.get_nowait())
+                out.append(v.q.get_nowait())
             except queue.Empty:
                 break
         return out
+
+    def viewer_count(self) -> int:
+        now = time.time()
+        with self.lock:
+            stale = [k for k, v in self.viewers.items() if v.last < now - _VIEWER_TTL]
+            for k in stale:
+                del self.viewers[k]
+            return len(self.viewers)
 
 
 _tunnels: dict[str, _TunnelSession] = {}
@@ -75,6 +116,13 @@ def _gen_code() -> str:
         code = "".join(random.choices(string.digits, k=6))
         if code not in _sessions:
             return code
+
+
+def _query(path: str) -> dict[str, str]:
+    if "?" not in path:
+        return {}
+    qs = path.split("?", 1)[1]
+    return dict(p.split("=", 1) for p in qs.split("&") if "=" in p)
 
 
 # ── HTTP handler ───────────────────────────────────────────────────────────────
@@ -98,7 +146,6 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parts = self.path.split("?")[0].strip("/").split("/")
 
-        # POST /register
         if self.path == "/register":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -118,7 +165,6 @@ class _Handler(BaseHTTPRequestHandler):
             print(f"[register] code={code}  {ip}:{port}", flush=True)
             self._send_json(200, {"code": code})
 
-        # POST /tunnel/{code}/push
         elif len(parts) == 3 and parts[0] == "tunnel" and parts[2] == "push":
             code = parts[1]
             with _lock:
@@ -134,7 +180,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "Bad JSON"})
                 return
             tunnel.push(messages)
-            self._send_json(200, {"ok": True})
+            self._send_json(200, {"ok": True, "viewers": tunnel.viewer_count()})
 
         else:
             self._send_json(404, {"error": "Not found"})
@@ -145,7 +191,6 @@ class _Handler(BaseHTTPRequestHandler):
         path  = self.path.split("?")[0]
         parts = path.strip("/").split("/")
 
-        # GET /lookup/{code}
         if len(parts) == 2 and parts[0] == "lookup":
             code = parts[1]
             with _lock:
@@ -155,7 +200,6 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json(404, {"error": "Session not found or expired"})
 
-        # GET /tunnel/{code}/poll[?timeout=N]
         elif len(parts) == 3 and parts[0] == "tunnel" and parts[2] == "poll":
             code = parts[1]
             with _lock:
@@ -163,17 +207,16 @@ class _Handler(BaseHTTPRequestHandler):
             if not tunnel or tunnel.expires < time.time():
                 self._send_json(404, {"error": "No tunnel for this code"})
                 return
+            params = _query(self.path)
             try:
-                qs     = self.path.split("?", 1)[1] if "?" in self.path else ""
-                params = dict(p.split("=", 1) for p in qs.split("&") if "=" in p)
-                tval   = min(float(params.get("timeout", "20")), 28.0)
+                tval = min(float(params.get("timeout", "20")), 28.0)
             except Exception:
                 tval = 20.0
-            messages = tunnel.poll(tval)
+            viewer_id = params.get("id", "_anon")
+            messages  = tunnel.poll(viewer_id, tval)
             self._send_json(200, {"messages": messages})
 
-        # GET / or /health
-        elif self.path.split("?")[0] in ("/", "/health"):
+        elif path in ("/", "/health"):
             self._send_json(200, {"status": "ok", "sessions": len(_sessions)})
 
         else:
