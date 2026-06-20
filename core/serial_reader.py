@@ -82,6 +82,7 @@ class SerialReader(QThread):
                 timeout=0.05,        # non-blocking read timeout
                 write_timeout=1.0,
             )
+            self._disconnected_emitted = False   # reset per-connection (see B1)
             self._running = True
             self.start()
             self.connected.emit(self._port, self._baud)
