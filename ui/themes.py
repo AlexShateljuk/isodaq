@@ -417,6 +417,11 @@ QPushButton#searchNav {{
     padding: 0; font-size: 14px; color: {c['fg']};
 }}
 QPushButton#searchNav:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
+
+/* Parser-strip fields share the search field's background */
+QLineEdit#parserField, QComboBox#parserField {{
+    background: {c['terminal']};
+}}
 QWidget#sidebar {{
     background: {c['bg2']}; border-left: 1px solid {c['border']};
 }}

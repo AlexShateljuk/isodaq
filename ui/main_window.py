@@ -345,9 +345,8 @@ class MainWindow(QMainWindow):
         self._search_case.stateChanged.connect(self._update_search)
         h.addWidget(self._search_case)
 
+        h.addStretch()   # nav group stays left; close button goes to the far right
         h.addWidget(_nav("✕", "Close (Esc)", self._close_search))
-
-        h.addStretch()   # left-align the whole group
         bar.hide()
         return bar
 
@@ -496,6 +495,7 @@ class MainWindow(QMainWindow):
         )
         ps.addWidget(parser_lbl)
         self._parser_combo = QComboBox()
+        self._parser_combo.setObjectName("parserField")
         self._parser_combo.addItems(["KEY=VALUE comma", "JSON", "CSV ordered", "Regex custom"])
         self._parser_combo.setToolTip(
             "KEY=VALUE comma — expects lines like: DATA:ch1=1.23,ch2=4.56\n"
@@ -510,6 +510,7 @@ class MainWindow(QMainWindow):
             "Each channel can have its own prefix — set it in the channel editor.")
         ps.addWidget(prefix_lbl)
         self._prefix_edit = QLineEdit("DATA:")
+        self._prefix_edit.setObjectName("parserField")
         self._prefix_edit.setFixedWidth(62)
         self._prefix_edit.setToolTip("Line prefix filter, e.g. \"DATA:\"")
         ps.addWidget(self._prefix_edit)
@@ -517,6 +518,7 @@ class MainWindow(QMainWindow):
         sep_lbl.setToolTip("Field separator character (CSV / KEY=VALUE mode)")
         ps.addWidget(sep_lbl)
         self._sep_edit = QLineEdit(",")
+        self._sep_edit.setObjectName("parserField")
         self._sep_edit.setFixedWidth(50)
         self._sep_edit.setToolTip("Separator, e.g. \",\" or \";\"")
         ps.addWidget(self._sep_edit)
@@ -1462,6 +1464,13 @@ class MainWindow(QMainWindow):
         C_FG  = QColor(c["fg"])
         # Set on QApplication so all open dialogs inherit it automatically
         QApplication.instance().setStyleSheet(build_stylesheet(theme))
+        # Force the tab bar to repaint — on macOS the empty tab-bar area can keep
+        # stale paint from the previous theme (the "dark rectangle after Analytics").
+        self._repolish(self._tabs)
+        self._repolish(self._tabs.tabBar())
+        if self._tabs.cornerWidget():
+            self._repolish(self._tabs.cornerWidget())
+        self._tabs.update()
         self._chart_panel.apply_theme(c)
         self._analytics_panel.apply_theme(c)
         set_current_theme(theme)

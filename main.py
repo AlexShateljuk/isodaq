@@ -14,7 +14,7 @@ _ICON = Path(__file__).parent / "ui" / "resources" / "icon.png"
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("IsoDAQ Studio")
-    app.setApplicationVersion("0.1.0")
+    app.setApplicationVersion("0.2.0")
     if _ICON.exists():
         app.setWindowIcon(QIcon(str(_ICON)))
 
