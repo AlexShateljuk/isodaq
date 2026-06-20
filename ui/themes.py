@@ -401,6 +401,14 @@ QWidget#portBar {{
 QWidget#inputBar {{
     background: {c['bg2']}; border-top: 1px solid {c['border']};
 }}
+QWidget#searchBar {{
+    background: {c['bg3']}; border-top: 1px solid {c['border']};
+}}
+QLineEdit#searchEdit {{
+    border: 1px solid {c['accent_brd']};
+    background: {c['terminal']};
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace; font-size: 11px;
+}}
 QWidget#sidebar {{
     background: {c['bg2']}; border-left: 1px solid {c['border']};
 }}

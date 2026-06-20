@@ -5,16 +5,19 @@ Columns: Time | Trigger | Line | [one column per active parsed channel]
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 _BASE_COLS = ["Time", "Trigger", "Line"]
+_LINE_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class TriggerEventsPanel(QWidget):
+    jump_to_line = pyqtSignal(int)   # emitted with the terminal line id on double-click
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._ch_names: list[str] = []
@@ -56,7 +59,16 @@ class TriggerEventsPanel(QWidget):
         self._table.setWordWrap(False)
         self._table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setToolTip("Double-click a row to jump to that line in the terminal")
+        self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         lay.addWidget(self._table)
+
+    def _on_row_double_clicked(self, row: int, _col: int) -> None:
+        item = self._table.item(row, 0)
+        if item is None:
+            return
+        line_id = item.data(_LINE_ID_ROLE)
+        self.jump_to_line.emit(int(line_id) if line_id is not None else -1)
 
     # ── Channel registration ───────────────────────────────────────────────────
 
@@ -84,12 +96,14 @@ class TriggerEventsPanel(QWidget):
     # ── Event logging ─────────────────────────────────────────────────────────
 
     def add_event(self, ts: str, trigger_name: str, line: str,
-                  parsed: dict[str, float]) -> None:
+                  parsed: dict[str, float], line_id: int = -1) -> None:
         row = self._table.rowCount()
         self._table.insertRow(row)
         for col, text in enumerate([ts, trigger_name, line]):
             item = QTableWidgetItem(text)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if col == 0:
+                item.setData(_LINE_ID_ROLE, int(line_id))
             self._table.setItem(row, col, item)
         for i, ch in enumerate(self._ch_names):
             text = f"{parsed[ch]:.5g}" if ch in parsed else ""
