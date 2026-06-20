@@ -785,42 +785,78 @@ class MainWindow(QMainWindow):
         lan_note.setObjectName("dimLabel")
         form.addRow(lan_note)
 
+        fw_note = QLabel(
+            "Internet sharing requires port 9876 to be reachable from outside.\n"
+            "If the viewer gets 'connection refused', your router is blocking it —\n"
+            "forward port 9876 → this machine, or use a VPN."
+        )
+        fw_note.setWordWrap(True)
+        fw_note.setObjectName("dimLabel")
+        form.addRow(fw_note)
+
         btn = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         btn.rejected.connect(dlg.accept)
         form.addRow(btn)
 
         # Background: STUN discovery → signaling register
         def _discover_and_register():
+            import json as _json
+            import urllib.request as _ur
+            import urllib.error as _ue
+
+            # ── 1. STUN ───────────────────────────────────────────────────────
             pub_ip = None
             try:
                 pub_ip = get_public_ip()
-                if pub_ip:
-                    self._log("SYS", f"[SHARE] STUN public IP: {pub_ip}", C_DIM)
-            except Exception:
-                pass
+            except Exception as e:
+                self._log("SYS", f"[SHARE] STUN error: {e}", C_DIM)
+            if pub_ip:
+                self._log("SYS", f"[SHARE] STUN public IP: {pub_ip}", C_DIM)
+            else:
+                self._log("SYS", "[SHARE] STUN failed — no public IP (check internet)", C_DIM)
 
-            if pub_ip and signaling.is_configured(self._signaling_url):
-                code = signaling.register(pub_ip, port, self._signaling_url)
-                if code:
-                    display = f"{code[:3]} {code[3:]}"
-                    self._share_session_code = code
-                    self._log("SYS", f"[SHARE] Code: {display}", C_SYS)
-                    if hasattr(self, "_share_dialog") and self._share_dialog:
-                        try:
-                            self._share_code_lbl.setText(display)
-                        except Exception:
-                            pass
-                    return
+            # ── 2. Signaling URL check ─────────────────────────────────────────
+            base = (self._signaling_url or signaling._DEFAULT_URL).rstrip("/")
+            if not base:
+                self._log("SYS",
+                          "[SHARE] Internet sharing unavailable — no signaling server URL.\n"
+                          "  → Edit → Preferences → set Signaling server URL", C_DIM)
+                if hasattr(self, "_share_code_lbl"):
+                    self._share_code_lbl.setText("Not available (no server URL)")
+                return
 
-            msg = ("No signaling server configured"
-                   if not signaling.is_configured(self._signaling_url)
-                   else "Could not reach signaling server")
-            self._log("SYS", f"[SHARE] Internet sharing unavailable — {msg}", C_DIM)
-            if hasattr(self, "_share_dialog") and self._share_dialog:
-                try:
-                    self._share_code_lbl.setText("Not available")
-                except Exception:
-                    pass
+            if not pub_ip:
+                if hasattr(self, "_share_code_lbl"):
+                    self._share_code_lbl.setText("Not available (STUN failed)")
+                return
+
+            # ── 3. Register with signaling server ──────────────────────────────
+            try:
+                body = _json.dumps({"ip": pub_ip, "port": port}).encode()
+                req  = _ur.Request(f"{base}/register", data=body,
+                                   headers={"Content-Type": "application/json"})
+                with _ur.urlopen(req, timeout=8) as r:
+                    resp = _json.loads(r.read())
+                code = str(resp.get("code", ""))
+                if not (len(code) == 6 and code.isdigit()):
+                    raise ValueError(f"unexpected response: {resp}")
+                display = f"{code[:3]} {code[3:]}"
+                self._share_session_code = code
+                self._log("SYS", f"[SHARE] Code: {display}", C_SYS)
+                if hasattr(self, "_share_code_lbl"):
+                    self._share_code_lbl.setText(display)
+                # Enable relay so internet viewers can connect through NAT
+                if hasattr(self, "_session_server") and self._session_server:
+                    self._session_server.set_relay(base, code)
+                    self._log("SYS", "[SHARE] Relay active — internet sharing ready", C_DIM)
+            except _ue.HTTPError as e:
+                self._log("SYS", f"[SHARE] Signaling server error HTTP {e.code}: {e.reason}", C_DIM)
+                if hasattr(self, "_share_code_lbl"):
+                    self._share_code_lbl.setText(f"Not available (HTTP {e.code})")
+            except Exception as e:
+                self._log("SYS", f"[SHARE] Cannot reach signaling server: {e}", C_DIM)
+                if hasattr(self, "_share_code_lbl"):
+                    self._share_code_lbl.setText("Not available (server unreachable)")
 
         threading.Thread(target=_discover_and_register, daemon=True).start()
         dlg.exec()
@@ -842,8 +878,14 @@ class MainWindow(QMainWindow):
 
         # If already joined, treat button as Leave
         if hasattr(self, "_session_client") and self._session_client:
-            self._session_client.stop()
+            client = self._session_client
             self._session_client = None
+            client.stop()
+            self._sb_ping.hide()
+            self._join_btn.setText("Join")
+            self._join_btn.setObjectName("joinBtn")
+            self._repolish(self._join_btn)
+            self._log("SYS", "[JOIN] Disconnected", C_DIM)
             return
 
         dlg = QDialog(self)
@@ -903,25 +945,30 @@ class MainWindow(QMainWindow):
             return
 
         if tabs.currentIndex() == 0:
-            # Code-based join
+            # Code-based join → relay (works through NAT/internet)
             raw_code = code_edit.text().strip()
             if not raw_code:
                 return
-            if not signaling.is_configured(self._signaling_url):
+            base = (self._signaling_url or signaling._DEFAULT_URL).rstrip("/")
+            if not base:
                 QMessageBox.warning(self, "No signaling server",
                                     "A signaling server URL is required to join by code.\n"
-                                    "Ask the host for the LAN address instead.")
+                                    "Go to Edit → Preferences and set the Signaling server URL,\n"
+                                    "or ask the host for the LAN address and use By address.")
                 return
+            # Validate the code exists before connecting to relay
             result = signaling.lookup(raw_code, self._signaling_url)
             if not result:
                 QMessageBox.warning(self, "Code not found",
                                     "Session not found or expired.\n"
                                     "Ask the host to check their session code.")
                 return
-            host, port = result
-            self._log("SYS", f"[JOIN] Code {raw_code.strip()} → {host}:{port}", C_DIM)
+            clean = raw_code.strip().replace(" ", "").replace("-", "")
+            relay_url = f"{base}/tunnel/{clean}/poll"
+            self._log("SYS", f"[JOIN] Code {raw_code.strip()} → relay", C_DIM)
+            self._connect_relay(relay_url)
         else:
-            # Address-based join
+            # Address-based join → direct TCP (LAN / VPN)
             raw = addr_edit.text().strip()
             if not raw:
                 return
@@ -932,14 +979,23 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Invalid address",
                                     "Use the format  host:port  e.g. 192.168.1.5:9876")
                 return
-
-        self._connect_to_session(host, port)
+            self._connect_to_session(host, port)
 
     def _connect_to_session(self, host: str, port: int) -> None:
+        """Start a direct TCP session (LAN / VPN)."""
+        self._start_client(SessionClient(host=host, port=port, parent=self))
+        self._sb_ping.setText("● … ms")
+        self._sb_ping.setStyleSheet("color:#6a6a7a")
+
+    def _connect_relay(self, relay_url: str) -> None:
+        """Start a relay session (works through NAT/internet)."""
+        self._start_client(SessionClient(relay_url=relay_url, parent=self))
+        self._sb_ping.setText("● relay")
+        self._sb_ping.setStyleSheet("color:#6a6a7a")
+
+    def _start_client(self, client: "SessionClient") -> None:
         if hasattr(self, "_session_client") and self._session_client:
             self._session_client.stop()
-
-        client = SessionClient(host, port, self)
         client.connected.connect(
             lambda addr: self._log("SYS", f"[JOIN] Connected to {addr}", C_SYS))
         client.disconnected.connect(self._on_session_disconnected)
@@ -949,13 +1005,14 @@ class MainWindow(QMainWindow):
         client.start()
         self._session_client = client
         self._sb_ping.show()
-        self._sb_ping.setText("● … ms")
-        self._sb_ping.setStyleSheet("color:#6a6a7a")
         self._join_btn.setText("Leave")
         self._join_btn.setObjectName("stopShareBtn")
         self._repolish(self._join_btn)
 
     def _on_session_disconnected(self) -> None:
+        if self._session_client is None:
+            return   # already handled by Leave button
+        self._session_client = None
         self._log("SYS", "[JOIN] Session ended", C_DIM)
         self._sb_ping.hide()
         self._join_btn.setText("Join")
@@ -980,8 +1037,11 @@ class MainWindow(QMainWindow):
         """Handle a line received from a remote session — display + parse only."""
         import datetime
         ts_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:12]
-        color = C_RX if kind == "rx" else C_SYS
-        self._log("REM", line, color, ts_str)
+        if kind == "tx":
+            self._log("TX", line, C_TX, ts_str)
+        else:
+            color = C_RX if kind == "rx" else C_SYS
+            self._log("REM", line, color, ts_str)
         parsed = self._parser.parse(line)
         if parsed:
             self._chart_panel.update(parsed)
@@ -1257,6 +1317,8 @@ class MainWindow(QMainWindow):
             self._tx_bytes += len(data)
             self._sb_tx.setText(f"TX: {self._fmt_bytes(self._tx_bytes)}")
             self._log("TX", text, C_TX)
+            if hasattr(self, "_session_server") and self._session_server:
+                self._session_server.feed_line(text, "tx")
 
         self._cmd_edit.clear()
 
