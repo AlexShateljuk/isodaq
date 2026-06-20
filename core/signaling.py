@@ -15,7 +15,7 @@ import urllib.request
 from typing import Optional
 
 # ── Set this after deploying relay/server.py ──────────────────────────────────
-_DEFAULT_URL = ""   # e.g. "https://isodaq-relay.railway.app"
+_DEFAULT_URL = "https://isodaq-production.up.railway.app"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
