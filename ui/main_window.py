@@ -17,10 +17,11 @@ Layout:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QAction
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QAction, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -194,6 +195,10 @@ class MainWindow(QMainWindow):
         self._search_matches: list[tuple[int, int]] = []   # (pos, length)
         self._search_index: int = -1
 
+        # Dev/design tools
+        self._inspect_mode: bool = False
+        self._dev: bool = bool(os.environ.get("ISODAQ_DEV"))
+
         self._build_ui()
         self._connect_signals()
         self._start_timers()
@@ -201,6 +206,7 @@ class MainWindow(QMainWindow):
         self._sync_analytics()  # populate analytics with initial trigger list
         self._refresh_ports()
         self._start_update_check()
+        self._setup_dev_tools()
 
         # Backup save — fires even when the process is killed without closeEvent
         QApplication.instance().aboutToQuit.connect(self._save_settings)
@@ -481,6 +487,7 @@ class MainWindow(QMainWindow):
 
         # Parser strip (hidden in Simple mode)
         self._parser_strip_w = QWidget()
+        self._parser_strip_w.setObjectName("parserStrip")
         ps = QHBoxLayout(self._parser_strip_w)
         ps.setContentsMargins(0, 0, 0, 0)
         ps.setSpacing(7)
@@ -552,12 +559,14 @@ class MainWindow(QMainWindow):
     def _build_right(self) -> QWidget:
         """Right panel (46 %): tabbed chart area (Graphs / Indicators / FFT) + sidebar."""
         w = QWidget()
+        w.setObjectName("rightPanel")   # bg2 so the tab-row gap fills (not dark bg)
         lay = QHBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(True)
+        self._tabs.setDocumentMode(False)        # documentMode drew a stray base line
+        self._tabs.tabBar().setDrawBase(False)   # no native base line under the tabs
         lay.addWidget(self._tabs)
 
         self._chart_panel = ChartPanel()
@@ -601,6 +610,8 @@ class MainWindow(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        from PyQt6.QtWidgets import QFrame
+        scroll.setFrameShape(QFrame.Shape.NoFrame)   # no inset border/gap above Macros
 
         inner = QWidget()
         inner_lay = QVBoxLayout(inner)
@@ -1479,6 +1490,72 @@ class MainWindow(QMainWindow):
             tint_titlebar(win)
         self._log("SYS", f"Theme: {theme}", C_SYS)
 
+    # ═════════════════════════════════════════════════════════════════════════
+    # Dev / design tools — element inspector + live theme hot-reload
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _setup_dev_tools(self) -> None:
+        # Element inspector — always available, hidden shortcut
+        QShortcut(QKeySequence("Ctrl+Shift+I"), self, activated=self._toggle_inspect)
+
+        if self._dev:
+            # Live theme hot-reload: re-apply styling whenever ui/themes.py is saved
+            from PyQt6.QtCore import QFileSystemWatcher
+            import ui.themes as _themes_mod
+            self._theme_path = _themes_mod.__file__
+            self._theme_watcher = QFileSystemWatcher([self._theme_path], self)
+            self._theme_watcher.fileChanged.connect(self._reload_theme_file)
+            QShortcut(QKeySequence("Ctrl+Shift+T"), self,
+                      activated=lambda: self._reload_theme_file(self._theme_path))
+            self._log("SYS", "DEV mode: theme hot-reload on (edit ui/themes.py → auto-restyle)", C_SYS)
+            self._log("SYS", "DEV mode: Ctrl+Shift+I inspect · Ctrl+Shift+T reload theme", C_DIM)
+
+    def _toggle_inspect(self) -> None:
+        self._inspect_mode = not self._inspect_mode
+        app = QApplication.instance()
+        if self._inspect_mode:
+            app.installEventFilter(self)
+            self._log("SYS", "INSPECT ON — click any element to print its name "
+                             "(Ctrl+Shift+I to exit)", C_SYS)
+        else:
+            app.removeEventFilter(self)
+            self._log("SYS", "INSPECT OFF", C_DIM)
+
+    def _describe_widget(self, w) -> None:
+        cls  = w.metaObject().className()
+        name = w.objectName()
+        chain, cur, nearest = [], w, ""
+        while cur is not None:
+            on = cur.objectName()
+            chain.append(f"{cur.metaObject().className()}" + (f"#{on}" if on else ""))
+            if on and not nearest:
+                nearest = on
+            cur = cur.parent()
+        sz = w.size()
+        head = (f"objectName='{name}'" if name
+                else f"(unnamed; nearest named ancestor: '{nearest or '—'}')")
+        self._log("SYS", f"[INSPECT] {cls}  {head}  {sz.width()}×{sz.height()}", C_OK)
+        self._log("SYS", "   path: " + "  <  ".join(chain[:6]), C_DIM)
+
+    def _reload_theme_file(self, path: str) -> None:
+        import importlib
+        import ui.themes as _themes_mod
+        try:
+            importlib.reload(_themes_mod)
+            # Rebind the names main_window imported directly from ui.themes
+            g = globals()
+            g["build_stylesheet"] = _themes_mod.build_stylesheet
+            g["theme_colors"]     = _themes_mod.theme_colors
+            g["set_current_theme"] = _themes_mod.set_current_theme
+            g["tint_titlebar"]    = _themes_mod.tint_titlebar
+            self._apply_theme(self._current_theme)
+            self._log("SYS", "Theme reloaded ✓", C_OK)
+        except Exception as e:
+            self._log("ERR", f"Theme reload failed: {e}", C_ERR)
+        # Editors replace the file on save, which drops the watch — re-add it
+        if hasattr(self, "_theme_watcher") and path not in self._theme_watcher.files():
+            self._theme_watcher.addPath(path)
+
     def _on_autoscroll_toggled(self, state: int) -> None:
         if state:
             sb = self._terminal.verticalScrollBar()
@@ -1701,6 +1778,13 @@ class MainWindow(QMainWindow):
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
         from PyQt6.QtGui import QKeyEvent
+        # Inspect mode (app-wide filter): first click reports the widget, eats the click
+        if self._inspect_mode and event.type() == QEvent.Type.MouseButtonPress:
+            from PyQt6.QtGui import QCursor
+            wdg = QApplication.widgetAt(QCursor.pos())
+            if wdg is not None:
+                self._describe_widget(wdg)
+            return True
         if obj is getattr(self, "_cmd_edit", None) and event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if key == Qt.Key.Key_Up and self._cmd_history:

@@ -139,6 +139,7 @@ QStatusBar {{
 }}
 
 /* ── Tabs ───────────────────────────────────────────────── */
+QWidget#rightPanel {{ background: {c['bg2']}; }}
 QTabWidget {{ background: {c['bg2']}; }}
 QTabWidget::pane {{
     border: none; border-top: 1px solid {c['border']}; background: {c['bg']};
@@ -417,6 +418,10 @@ QPushButton#searchNav {{
     padding: 0; font-size: 14px; color: {c['fg']};
 }}
 QPushButton#searchNav:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
+
+/* Parser strip container: transparent so it shows inputBar's bg2 (matches portBar)
+   instead of the darker default QWidget background */
+QWidget#parserStrip {{ background: transparent; }}
 
 /* Parser-strip fields share the search field's background */
 QLineEdit#parserField, QComboBox#parserField {{
