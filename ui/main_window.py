@@ -60,6 +60,7 @@ from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_disp
 from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
 from ui.controllers.dev_tools import DevTools
+from ui.controllers.search_controller import SearchController
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -191,13 +192,13 @@ class MainWindow(QMainWindow):
         self._updates = UpdateManager(self)
         # Element inspector + theme hot-reload (OSS6).
         self._devtools = DevTools(self)
+        # In-terminal find bar (F1) + trigger→line jump (F2) (OSS6).
+        self._search = SearchController(self)
 
         # Per-line identity for "jump to log line" (F2) and in-log search (F1)
         self._line_seq: int = 0
         self._last_rx_line_id: int = -1
         self._current_rx_line_id: int = -1
-        self._search_matches: list[tuple[int, int]] = []   # (pos, length)
-        self._search_index: int = -1
 
         self._build_ui()
         self._connect_signals()
@@ -259,7 +260,7 @@ class MainWindow(QMainWindow):
 
         view_m = mb.addMenu("View")
         view_m.addAction(QAction("Find…", self, shortcut="Ctrl+F",
-                                 triggered=self._open_search))
+                                 triggered=self._search.open))
         view_m.addSeparator()
         self._mode_action = QAction("Simple Mode", self, checkable=True,
                                     shortcut="Ctrl+Shift+M",
@@ -303,58 +304,9 @@ class MainWindow(QMainWindow):
         self._terminal.setFont(QFont("JetBrains Mono", 11))
         lay.addWidget(self._terminal)
 
-        lay.addWidget(self._build_search_bar())
+        lay.addWidget(self._search.build_bar())
         lay.addWidget(self._build_input_bar())
         return w
-
-    def _build_search_bar(self) -> QWidget:
-        """In-terminal search bar (F1) — hidden until Ctrl+F."""
-        bar = QWidget()
-        bar.setObjectName("searchBar")
-        self._search_bar = bar
-        h = QHBoxLayout(bar)
-        h.setContentsMargins(10, 4, 10, 4)
-        h.setSpacing(6)
-
-        # Compact glyph button: inline padding:0 so the single char isn't clipped
-        # by the global QPushButton padding (the cause of the blank boxes).
-        def _nav(glyph: str, tip: str, slot) -> QPushButton:
-            b = QPushButton(glyph)
-            b.setObjectName("searchNav")
-            b.setFixedSize(30, 26)
-            b.setStyleSheet("padding:0; font-size:14px;")
-            b.setToolTip(tip)
-            b.clicked.connect(slot)
-            return b
-
-        h.addWidget(self._lbl("Find", dim=True))
-        self._search_edit = QLineEdit()
-        self._search_edit.setObjectName("searchEdit")
-        self._search_edit.setPlaceholderText("Search terminal…")
-        self._search_edit.setMinimumWidth(220)
-        self._search_edit.setMaximumWidth(360)
-        self._search_edit.installEventFilter(self)
-        self._search_edit.textChanged.connect(self._update_search)
-        h.addWidget(self._search_edit)
-
-        h.addWidget(_nav("▲", "Previous match (Shift+Enter)", lambda: self._search_step(-1)))
-        h.addWidget(_nav("▼", "Next match (Enter)", lambda: self._search_step(+1)))
-
-        self._search_count = QLabel("0/0")
-        self._search_count.setObjectName("dimLabelMono")
-        self._search_count.setMinimumWidth(46)
-        self._search_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        h.addWidget(self._search_count)
-
-        self._search_case = QCheckBox("Aa")
-        self._search_case.setToolTip("Match case")
-        self._search_case.stateChanged.connect(self._update_search)
-        h.addWidget(self._search_case)
-
-        h.addStretch()   # nav group stays left; close button goes to the far right
-        h.addWidget(_nav("✕", "Close (Esc)", self._close_search))
-        bar.hide()
-        return bar
 
     def _build_port_bar(self) -> QWidget:
         """
@@ -576,7 +528,7 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._indicator_panel, "Indicators")
 
         self._trigger_events_panel = TriggerEventsPanel()
-        self._trigger_events_panel.jump_to_line.connect(self._jump_to_log_line)
+        self._trigger_events_panel.jump_to_line.connect(self._search.jump_to_line)
         self._tabs.addTab(self._trigger_events_panel, "Events")
 
         self._analytics_panel = AnalyticsPanel()
@@ -1188,112 +1140,13 @@ class MainWindow(QMainWindow):
             sb.setValue(sb.maximum())
 
     # ═════════════════════════════════════════════════════════════════════════
-    # In-log search (F1)
-    # ═════════════════════════════════════════════════════════════════════════
-
-    def _open_search(self) -> None:
-        self._search_bar.show()
-        sel = self._terminal.textCursor().selectedText()
-        if sel:
-            self._search_edit.setText(sel)
-        self._search_edit.setFocus()
-        self._search_edit.selectAll()
-        self._update_search()
-
-    def _close_search(self) -> None:
-        self._search_bar.hide()
-        self._search_matches = []
-        self._search_index = -1
-        self._terminal.setExtraSelections([])
-        self._terminal.setFocus()
-
-    def _update_search(self) -> None:
-        """Recompute matches over the terminal text and highlight them."""
-        needle = self._search_edit.text()
-        text   = self._terminal.toPlainText()
-        self._search_matches = []
-        if needle:
-            hay = text if self._search_case.isChecked() else text.lower()
-            ndl = needle if self._search_case.isChecked() else needle.lower()
-            start = 0
-            while True:
-                i = hay.find(ndl, start)
-                if i < 0:
-                    break
-                self._search_matches.append((i, len(ndl)))
-                start = i + len(ndl)
-        self._search_index = 0 if self._search_matches else -1
-        self._render_search_highlights()
-        self._show_current_match()
-
-    def _search_step(self, delta: int) -> None:
-        if not self._search_matches:
-            return
-        self._search_index = (self._search_index + delta) % len(self._search_matches)
-        self._show_current_match()
-
-    def _render_search_highlights(self) -> None:
-        from PyQt6.QtWidgets import QTextEdit as _QTE
-        sels = []
-        all_fmt = QTextCharFormat()
-        all_fmt.setBackground(QColor("#5a4a00"))
-        cur_fmt = QTextCharFormat()
-        cur_fmt.setBackground(QColor("#b58900"))
-        cur_fmt.setForeground(QColor("#1e1e1e"))
-        doc = self._terminal.document()
-        for idx, (pos, length) in enumerate(self._search_matches):
-            sel = _QTE.ExtraSelection()
-            cur = QTextCursor(doc)
-            cur.setPosition(pos)
-            cur.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
-            sel.cursor = cur
-            sel.format = cur_fmt if idx == self._search_index else all_fmt
-            sels.append(sel)
-        self._terminal.setExtraSelections(sels)
-
-    def _show_current_match(self) -> None:
-        n = len(self._search_matches)
-        self._search_count.setText(
-            f"{self._search_index + 1}/{n}" if n else "0/0")
-        if self._search_index < 0 or not self._search_matches:
-            return
-        pos, length = self._search_matches[self._search_index]
-        cur = self._terminal.textCursor()
-        cur.setPosition(pos)
-        cur.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
-        self._terminal.setTextCursor(cur)
-        self._terminal.ensureCursorVisible()
-        self._render_search_highlights()   # refresh which match is "current"
-
-    # ═════════════════════════════════════════════════════════════════════════
-    # Jump from a trigger event to the log line that fired it (F2)
-    # ═════════════════════════════════════════════════════════════════════════
-
-    def _jump_to_log_line(self, line_id: int) -> None:
-        if line_id is None or line_id < 0:
-            self._log("SYS", "No log location recorded for this event.", C_DIM)
-            return
-        doc = self._terminal.document()
-        block = doc.firstBlock()
-        while block.isValid():
-            if block.userState() == line_id:
-                cur = QTextCursor(block)
-                cur.select(QTextCursor.SelectionType.LineUnderCursor)
-                self._terminal.setTextCursor(cur)
-                self._terminal.ensureCursorVisible()
-                self._terminal.setFocus()
-                return
-            block = block.next()
-        self._log("SYS",
-                  "That line has scrolled out of the terminal buffer.", C_DIM)
-
-    # ═════════════════════════════════════════════════════════════════════════
     # Keyboard event filter (↑↓ history)
     # ═════════════════════════════════════════════════════════════════════════
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
-        # (Inspect-mode click handling lives in DevTools' own app-wide filter.)
+        # (Inspect-mode click handling lives in DevTools' own app-wide filter;
+        #  the search field's Esc/Enter handling lives in SearchController's.)
         if obj is getattr(self, "_cmd_edit", None) and event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if key == Qt.Key.Key_Up and self._cmd_history:
@@ -1303,15 +1156,6 @@ class MainWindow(QMainWindow):
             if key == Qt.Key.Key_Down:
                 self._hist_idx = min(len(self._cmd_history), self._hist_idx + 1)
                 self._cmd_edit.setText(self._cmd_history[self._hist_idx] if self._hist_idx < len(self._cmd_history) else "")
-                return True
-        if obj is getattr(self, "_search_edit", None) and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Escape:
-                self._close_search()
-                return True
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                back = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                self._search_step(-1 if back else +1)
                 return True
         return super().eventFilter(obj, event)
 
