@@ -51,9 +51,10 @@ hardening, tests + CI, docs, a major internal refactor, and i18n groundwork.
 ### Fixed
 - **macOS release was mislabelled** — the `macos-latest` runner is Apple Silicon
   but the artifact was named `…-x64`, so Intel users got an incompatible binary.
-  Releases now build both `macos-arm64` and `macos-x64` (on macos-14 / macos-13)
-  with honest names. The `.app` is ad-hoc signed so arm64 builds run without the
-  "damaged" error; README documents the Gatekeeper/SmartScreen workarounds.
+  The macOS build is now Apple-Silicon (`macos-arm64`) with an honest name and an
+  ad-hoc signature (so it runs without the "damaged" error). No native Intel
+  binary is shipped — GitHub's Intel CI runners queue for hours; Intel Mac users
+  run from source. README documents the Gatekeeper/SmartScreen workarounds.
 - **Logger dropped the last buffered batch on session stop** — `Logger.stop()`
   closed the sinks before the writer thread flushed its sub-interval buffer, so
   the last ≤0.2 s of lines were silently lost. Added a flush handshake.

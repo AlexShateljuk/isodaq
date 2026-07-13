@@ -20,18 +20,17 @@ jobs:
           - os: ubuntu-22.04
             artifact: IsoDAQ-Studio-linux-x64.tar.gz
             dist_name: IsoDAQ Studio
-          # macOS is built per-arch: macos-13 runners are Intel (x64),
-          # macos-14 runners are Apple Silicon (arm64). PyInstaller builds for
-          # the runner's native arch (spec target_arch=None), so each artifact
-          # is named honestly and Intel users no longer get an arm64 binary.
-          - os: macos-13
-            artifact: IsoDAQ-Studio-macos-x64.zip
-            dist_name: IsoDAQ Studio.app
+          # macOS: Apple Silicon (arm64) only. GitHub's Intel (macos-13) runner
+          # pool is being wound down and can queue for hours, blocking the whole
+          # release, so we don't ship a native Intel build — Intel Mac users run
+          # from source (it's a pure-Python app; see the README). PyInstaller
+          # builds the runner's native arch (spec target_arch=None).
           - os: macos-14
             artifact: IsoDAQ-Studio-macos-arm64.zip
             dist_name: IsoDAQ Studio.app
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -118,5 +117,4 @@ jobs:
           files: |
             IsoDAQ-Studio-windows-x64.zip
             IsoDAQ-Studio-linux-x64.tar.gz
-            IsoDAQ-Studio-macos-x64.zip
             IsoDAQ-Studio-macos-arm64.zip

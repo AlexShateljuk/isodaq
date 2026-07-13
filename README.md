@@ -31,14 +31,18 @@ Download the latest release for your platform from the
 | Windows 10/11 x64 | `IsoDAQ-Studio-windows-x64.zip` | Extract → run `IsoDAQ Studio.exe` |
 | Linux x64 | `IsoDAQ-Studio-linux-x64.tar.gz` | Extract → `chmod +x "IsoDAQ Studio"` → run `./IsoDAQ\ Studio` |
 | macOS Apple Silicon (M1+) | `IsoDAQ-Studio-macos-arm64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
-| macOS Intel | `IsoDAQ-Studio-macos-x64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
+| macOS Intel | *(no pre-built binary)* | Run from source — see [Running from source](#running-from-source) |
+
+> **Intel Macs:** GitHub's Intel CI runners are being retired and can queue for
+> hours, so releases ship an Apple-Silicon (arm64) build only. IsoDAQ Studio is
+> a pure-Python app, so on an Intel Mac just run it from source
+> (`pip install -r requirements.txt && python main.py`).
 
 > **Unsigned builds:** releases are not code-signed/notarized (no paid
 > certificates), so the OS shows a first-run warning. This is expected.
 > - **macOS** — Gatekeeper says *"unidentified developer"*: **right-click the
 >   app → Open → Open**, once. (If you see *"damaged"*, remove the quarantine
->   flag: `xattr -dr com.apple.quarantine "IsoDAQ Studio.app"`.) Pick the build
->   matching your chip — arm64 for M1/M2/M3, x64 for Intel.
+>   flag: `xattr -dr com.apple.quarantine "IsoDAQ Studio.app"`.)
 > - **Windows** — SmartScreen shows *"Windows protected your PC"*: click
 >   **More info → Run anyway**.
 
