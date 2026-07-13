@@ -16,7 +16,6 @@ Layout:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
@@ -45,7 +44,7 @@ from core.logger import Logger
 from core.macros import MacroRunner
 from core.serial_reader import SerialReader
 import core.signaling as signaling
-from core.triggers import Trigger, TriggerEngine
+from core.triggers import TriggerEngine
 from core.data_parser import DataParser
 from ui.logger_panel import LoggerPanel
 from ui.log_colorizer_dialog import LogColorizerDialog, match_log_color
@@ -63,6 +62,7 @@ from ui.controllers.dev_tools import DevTools
 from ui.controllers.search_controller import SearchController
 from ui.controllers.settings_manager import SettingsManager
 from ui.controllers.serial_controller import SerialController
+from ui.controllers.trigger_controller import TriggerController
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -198,6 +198,8 @@ class MainWindow(QMainWindow):
         self._settings = SettingsManager(self)
         # Serial connect/send/ports + command history (OSS6).
         self._serial = SerialController(self)
+        # Trigger match/actions + analytics sync + save/load (OSS6).
+        self._triggers = TriggerController(self)
 
         # Per-line identity for "jump to log line" (F2) and in-log search (F1)
         self._line_seq: int = 0
@@ -208,7 +210,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._start_timers()
         self._settings.load()   # restore persisted state before first port scan
-        self._sync_analytics()  # populate analytics with initial trigger list
+        self._triggers.sync_analytics()  # populate analytics with initial trigger list
         self._serial.refresh_ports()
         self._updates.start()
         self._devtools.setup()
@@ -254,8 +256,8 @@ class MainWindow(QMainWindow):
         """Builds the top menu bar: File / Device / View / Settings / Help."""
         mb = self.menuBar()
         file_m = mb.addMenu("File")
-        file_m.addAction(QAction("Save triggers…", self, triggered=self._save_triggers))
-        file_m.addAction(QAction("Load triggers…", self, triggered=self._load_triggers))
+        file_m.addAction(QAction("Save triggers…", self, triggered=self._triggers.save_triggers))
+        file_m.addAction(QAction("Load triggers…", self, triggered=self._triggers.load_triggers))
         file_m.addSeparator()
         file_m.addAction(QAction("Exit", self, triggered=self.close))
 
@@ -701,10 +703,10 @@ class MainWindow(QMainWindow):
         self._serial.wire()   # reader connection-state signals → SerialController
 
         # Trigger matches → GUI highlight + log
-        self._engine.on_match(self._on_trigger_match_threadsafe)
+        self._engine.on_match(self._triggers.on_match_threadsafe)
 
         # Trigger list changes → sync analytics panel
-        self._trigger_panel.trigger_changed.connect(self._sync_analytics)
+        self._trigger_panel.trigger_changed.connect(self._triggers.sync_analytics)
 
         # Parse panel → chart / indicator panels
         self._parse_panel.channel_chart_req.connect(self._on_channel_chart_req)
@@ -764,70 +766,6 @@ class MainWindow(QMainWindow):
         widget.style().polish(widget)
         widget.update()
 
-    # ── Trigger match (called from serial thread via engine callback) ──────────
-
-    def _on_trigger_match_threadsafe(self, trigger: Trigger, line: str, ts: str):
-        """
-        Called from the serial reader thread.
-        Use invokeMethod to safely update GUI.
-        """
-        from PyQt6.QtCore import QMetaObject, Q_ARG
-        line_id = self._current_rx_line_id   # id of the terminal line that matched
-        QMetaObject.invokeMethod(
-            self, "_on_trigger_match_gui",
-            Qt.ConnectionType.QueuedConnection,
-            Q_ARG(object, trigger),
-            Q_ARG(str, line),
-            Q_ARG(str, ts),
-            Q_ARG(int, line_id),
-        )
-
-    @pyqtSlot(object, str, str, int)
-    def _on_trigger_match_gui(self, trigger: Trigger, line: str, ts: str,
-                              line_id: int = -1):
-        """Runs in GUI thread. Handles all trigger actions."""
-        # ── Flash: highlighted banner in terminal ─────────────────────────────
-        if trigger.action_flash:
-            cursor = self._terminal.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(trigger.color).darker(280))
-            fmt.setForeground(QColor(trigger.color))
-            cursor.insertText(f"\n⚡ TRIGGER [{trigger.name}]: {line}\n", fmt)
-            if self._chk_auto.isChecked():
-                self._terminal.ensureCursorVisible()
-
-        # ── Log: write trigger marker to active sinks ─────────────────────────
-        if trigger.action_log:
-            self._logger.write_trigger_event(trigger.name, line, ts)
-
-        # ── Sound: system beep ────────────────────────────────────────────────
-        if trigger.action_sound:
-            QApplication.beep()
-
-        # ── Pause log: stop active logging session ────────────────────────────
-        if trigger.action_pause and self._logger.active:
-            self._logger.stop()
-            self._logger_panel._btn.setText("▶  Start Log")
-            self._logger_panel._btn.setObjectName("start")
-            self._repolish(self._logger_panel._btn)
-            self._log("SYS", f"[TRIGGER:{trigger.name}] Log paused.", C_SYS)
-
-        # ── Resume log: restart logging session ───────────────────────────────
-        if trigger.action_resume and not self._logger.active:
-            fp, dp = self._logger.start()
-            self._logger_panel._btn.setText("⏹  Stop Log")
-            self._logger_panel._btn.setObjectName("stop")
-            self._repolish(self._logger_panel._btn)
-            self._log("SYS", f"[TRIGGER:{trigger.name}] Log resumed.", C_OK)
-
-        self._trigger_panel.refresh_hits()
-        self._analytics_panel.record_hit(trigger.name)
-
-        # Always log to trigger events panel (double-click a row to jump — F2)
-        self._trigger_events_panel.add_event(ts, trigger.name, line,
-                                             dict(self._last_parsed), line_id)
-
     # ── Parse panel → display panel slots ────────────────────────────────────
 
     @pyqtSlot(str, bool)
@@ -853,9 +791,6 @@ class MainWindow(QMainWindow):
         else:
             self._chart_panel.remove_channel(name)
             self._trigger_events_panel.unregister_channel(name)
-
-    def _sync_analytics(self) -> None:
-        self._analytics_panel.sync_triggers(self._engine.get_triggers())
 
     @pyqtSlot(str, bool)
     def _on_channel_indicator_req(self, name: str, enable: bool) -> None:
@@ -945,50 +880,6 @@ class MainWindow(QMainWindow):
                 self._log("SYS", f"Log colorizer active: {names}", C_SYS)
             else:
                 self._log("SYS", "Log colorizer disabled.", C_DIM)
-
-    def _save_triggers(self):
-        from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(self, "Save triggers", "", "JSON (*.json)")
-        if path:
-            Path(path).write_text(json.dumps(self._engine.to_dict_list(), indent=2))
-
-    def _load_triggers(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        path, _ = QFileDialog.getOpenFileName(self, "Load triggers", "", "JSON (*.json)")
-        if not path:
-            return
-        try:
-            data = json.loads(Path(path).read_text())
-        except Exception as e:
-            QMessageBox.warning(self, "Load failed", f"Could not read triggers file:\n{e}")
-            return
-
-        # Security gate: [python] triggers execute arbitrary code on this machine.
-        allow_python = True
-        py_count = TriggerEngine.count_python(data)
-        if py_count:
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("This file runs custom code")
-            box.setText(
-                f"This trigger file contains {py_count} custom <b>Python</b> rule(s).\n"
-                "Python triggers run arbitrary code on your computer when a serial "
-                "line matches.\n\nOnly enable them if you trust the source of this file.")
-            b_enable  = box.addButton("Load && enable", QMessageBox.ButtonRole.AcceptRole)
-            b_disable = box.addButton("Load disabled",  QMessageBox.ButtonRole.DestructiveRole)
-            b_cancel  = box.addButton(QMessageBox.StandardButton.Cancel)
-            box.setDefaultButton(b_disable)
-            box.exec()
-            clicked = box.clickedButton()
-            if clicked is b_cancel:
-                return
-            allow_python = clicked is b_enable
-
-        self._engine.from_dict_list(data, allow_python=allow_python)
-        self._trigger_panel._rebuild_list()
-        if py_count and not allow_python:
-            self._log("SYS", f"Loaded {py_count} Python trigger(s) DISABLED — "
-                             "open a rule in the editor to review and enable it.", C_SYS)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Terminal helpers
