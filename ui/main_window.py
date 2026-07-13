@@ -44,6 +44,7 @@ from core.logger import Logger
 from core.macros import MacroRunner
 from core.serial_reader import SerialReader
 import core.signaling as signaling
+from core.i18n import current_language, tr
 from core.triggers import TriggerEngine
 from core.data_parser import DataParser
 from ui.logger_panel import LoggerPanel
@@ -185,6 +186,7 @@ class MainWindow(QMainWindow):
         self._user_scrolling: bool = False
         self._mode: str = "advanced"
         self._signaling_url: str = signaling._DEFAULT_URL
+        self._language: str = current_language()   # applied at startup in main.py
 
         # Session sharing (host + viewer) lives in its own controller (OSS6).
         self._session = SessionController(self)
@@ -255,42 +257,42 @@ class MainWindow(QMainWindow):
     def _build_menu(self):
         """Builds the top menu bar: File / Device / View / Settings / Help."""
         mb = self.menuBar()
-        file_m = mb.addMenu("File")
-        file_m.addAction(QAction("Save triggers…", self, triggered=self._triggers.save_triggers))
-        file_m.addAction(QAction("Load triggers…", self, triggered=self._triggers.load_triggers))
+        file_m = mb.addMenu(tr("File"))
+        file_m.addAction(QAction(tr("Save triggers…"), self, triggered=self._triggers.save_triggers))
+        file_m.addAction(QAction(tr("Load triggers…"), self, triggered=self._triggers.load_triggers))
         file_m.addSeparator()
-        file_m.addAction(QAction("Exit", self, triggered=self.close))
+        file_m.addAction(QAction(tr("Exit"), self, triggered=self.close))
 
-        device_m = mb.addMenu("Device")
-        device_m.addAction(QAction("Refresh ports", self, triggered=self._serial.refresh_ports))
+        device_m = mb.addMenu(tr("Device"))
+        device_m.addAction(QAction(tr("Refresh ports"), self, triggered=self._serial.refresh_ports))
 
-        view_m = mb.addMenu("View")
-        view_m.addAction(QAction("Find…", self, shortcut="Ctrl+F",
+        view_m = mb.addMenu(tr("View"))
+        view_m.addAction(QAction(tr("Find…"), self, shortcut="Ctrl+F",
                                  triggered=self._search.open))
         view_m.addSeparator()
-        self._mode_action = QAction("Simple Mode", self, checkable=True,
+        self._mode_action = QAction(tr("Simple Mode"), self, checkable=True,
                                     shortcut="Ctrl+Shift+M",
                                     triggered=self._toggle_mode)
         view_m.addAction(self._mode_action)
         view_m.addSeparator()
-        view_m.addAction(QAction("Right Panel", self,
+        view_m.addAction(QAction(tr("Right Panel"), self,
                                  triggered=self._toggle_right_panel,
                                  shortcut="Ctrl+Shift+R"))
         view_m.addSeparator()
-        theme_m = view_m.addMenu("Theme")
+        theme_m = view_m.addMenu(tr("Theme"))
         for display_name in THEME_NAMES:
             theme_m.addAction(QAction(display_name, self,
                                       triggered=lambda _=None, n=display_name:
                                       self._apply_theme(key_from_display(n))))
 
-        settings_m = mb.addMenu("Settings")
-        settings_m.addAction(QAction("Log Colorizer…", self, triggered=self._open_log_colorizer))
-        settings_m.addAction(QAction("Preferences…",   self, triggered=self._settings.open_preferences))
+        settings_m = mb.addMenu(tr("Settings"))
+        settings_m.addAction(QAction(tr("Log Colorizer…"), self, triggered=self._open_log_colorizer))
+        settings_m.addAction(QAction(tr("Preferences…"),   self, triggered=self._settings.open_preferences))
 
-        help_m = mb.addMenu("Help")
-        help_m.addAction(QAction("Check for Updates", self, triggered=self._updates.check_now))
+        help_m = mb.addMenu(tr("Help"))
+        help_m.addAction(QAction(tr("Check for Updates"), self, triggered=self._updates.check_now))
         help_m.addSeparator()
-        help_m.addAction(QAction("About IsoDAQ Studio…", self, triggered=self._show_about))
+        help_m.addAction(QAction(tr("About IsoDAQ Studio…"), self, triggered=self._show_about))
 
     # ── Left panel ────────────────────────────────────────────────────────────
 

@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `core/`.
 - `constraints.txt` with the exact tested dependency versions for reproducible
   installs (`pip install -r requirements.txt -c constraints.txt`).
+- **Internationalization (i18n)** — lightweight JSON-catalog translations
+  (`core/i18n.py`, `translations/`), a Ukrainian catalog, a language picker in
+  Preferences, and `ISODAQ_LANG` / system-locale auto-detection. Menu bar is the
+  first translated slice; coverage grows incrementally.
+- **`ui/main_window.py` decomposition** — split the 2069-line god-object into 7
+  focused controllers under `ui/controllers/` (down to 1003 lines); added an
+  offscreen construction smoke test and a settings round-trip test.
 
 ### Changed
 - **Relay hardening**: session cap, per-IP session cap, per-tunnel viewer cap,

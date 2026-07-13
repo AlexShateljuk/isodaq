@@ -13,6 +13,7 @@ from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QComboBox
 
+from core import i18n
 from ui.themes import tint_titlebar
 
 
@@ -99,6 +100,9 @@ class SettingsManager(QObject):
         if "signaling_url" in data:
             mw._signaling_url = str(data["signaling_url"])
 
+        if "language" in data:
+            mw._language = str(data["language"])   # applied at next launch (main.py)
+
     def save(self) -> None:
         """Persist all UI state to config.json."""
         mw = self._mw
@@ -128,6 +132,7 @@ class SettingsManager(QObject):
                 "indicator_thresholds": mw._indicator_panel.get_thresholds(),
                 "mode":          mw._mode,
                 "signaling_url": mw._signaling_url,
+                "language":      mw._language,
             }, indent=2))
         except Exception:
             import traceback
@@ -148,6 +153,16 @@ class SettingsManager(QObject):
         form = QFormLayout(dlg)
         form.setContentsMargins(16, 16, 16, 12)
         form.setSpacing(10)
+
+        lang_combo = QComboBox()
+        for code in i18n.available_languages():
+            lang_combo.addItem(i18n.language_name(code), code)
+        cur = lang_combo.findData(mw._language)
+        if cur >= 0:
+            lang_combo.setCurrentIndex(cur)
+        lbl_lang = QLabel("Language (restart to apply)")
+        lbl_lang.setObjectName("dimLabel")
+        form.addRow(lbl_lang, lang_combo)
 
         scrollback_spin = QSpinBox()
         scrollback_spin.setRange(100, 50000)
@@ -183,4 +198,5 @@ class SettingsManager(QObject):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             mw._scrollback_limit = scrollback_spin.value()
             mw._signaling_url = sig_edit.text().strip()
+            mw._language = lang_combo.currentData()
             self.save()

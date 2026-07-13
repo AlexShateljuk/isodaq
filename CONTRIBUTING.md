@@ -50,6 +50,13 @@ we want to keep them that way.
 - Describe **what** and **why** in the PR body. Link any related issue.
 - Add a line under `## [Unreleased]` in `CHANGELOG.md` for user-visible changes.
 
+## Translations
+
+IsoDAQ Studio uses a simple JSON-catalog i18n (no Qt Linguist needed). To add or
+improve a language, edit `translations/<code>.json` — see
+[translations/README.md](translations/README.md). Wrapping more UI strings in
+`core.i18n.tr(...)` is welcome, well-scoped first-contribution work.
+
 ## Security
 
 Found a vulnerability? Please **don't** open a public issue — see
