@@ -36,7 +36,6 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QStatusBar,
-    QSystemTrayIcon,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -48,7 +47,6 @@ from core.macros import MacroRunner
 from core.serial_reader import SerialReader
 import core.signaling as signaling
 from core.triggers import Trigger, TriggerEngine
-from core.updater import UpdateChecker
 from core.data_parser import DataParser
 from ui.logger_panel import LoggerPanel
 from ui.log_colorizer_dialog import LogColorizerDialog, match_log_color
@@ -61,6 +59,7 @@ from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
 from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 from ui.controllers.session_controller import SessionController
+from ui.controllers.update_manager import UpdateManager
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -188,6 +187,8 @@ class MainWindow(QMainWindow):
 
         # Session sharing (host + viewer) lives in its own controller (OSS6).
         self._session = SessionController(self)
+        # In-app update check / banner / tray notification (OSS6).
+        self._updates = UpdateManager(self)
 
         # Per-line identity for "jump to log line" (F2) and in-log search (F1)
         self._line_seq: int = 0
@@ -206,7 +207,7 @@ class MainWindow(QMainWindow):
         self._load_settings()   # restore persisted state before first port scan
         self._sync_analytics()  # populate analytics with initial trigger list
         self._refresh_ports()
-        self._start_update_check()
+        self._updates.start()
         self._setup_dev_tools()
 
         # Backup save — fires even when the process is killed without closeEvent
@@ -230,7 +231,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        self._update_banner = self._build_update_banner()
+        self._update_banner = self._updates.build_banner()
         root.addWidget(self._update_banner)
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -282,7 +283,7 @@ class MainWindow(QMainWindow):
         settings_m.addAction(QAction("Preferences…",   self, triggered=self._open_preferences))
 
         help_m = mb.addMenu("Help")
-        help_m.addAction(QAction("Check for Updates", self, triggered=self._check_for_updates))
+        help_m.addAction(QAction("Check for Updates", self, triggered=self._updates.check_now))
         help_m.addSeparator()
         help_m.addAction(QAction("About IsoDAQ Studio…", self, triggered=self._show_about))
 
@@ -698,86 +699,6 @@ class MainWindow(QMainWindow):
         sb.clicked.connect(self._send_custom)
         lay.addWidget(sb)
         return w
-
-    # ── Update banner ─────────────────────────────────────────────────────────
-
-    def _build_update_banner(self) -> QWidget:
-        w = QWidget()
-        w.setObjectName("updateBanner")
-        w.hide()
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(12, 4, 8, 4)
-        lay.setSpacing(10)
-
-        self._update_lbl = QLabel("")
-        self._update_lbl.setObjectName("updateLabel")
-        lay.addWidget(self._update_lbl)
-        lay.addStretch()
-
-        self._update_dl_btn = QPushButton("Download")
-        self._update_dl_btn.setObjectName("iconBtn")
-        self._update_dl_btn.clicked.connect(self._open_release_page)
-        lay.addWidget(self._update_dl_btn)
-
-        dismiss = QPushButton("×")
-        dismiss.setObjectName("delBtn")
-        dismiss.setFixedSize(20, 20)
-        dismiss.clicked.connect(w.hide)
-        lay.addWidget(dismiss)
-        return w
-
-    def _build_tray_icon(self):
-        icon = QApplication.instance().windowIcon()
-        self._tray = QSystemTrayIcon(icon, self)
-        self._tray.messageClicked.connect(self._open_release_page)
-        # Don't show in tray — we only use it for notifications
-        self._tray.hide()
-
-    def _start_update_check(self):
-        self._release_url = ""
-        self._build_tray_icon()
-        current = QApplication.instance().applicationVersion()
-        self._updater = UpdateChecker(current, self)
-        self._updater.update_available.connect(self._on_update_available)
-        QTimer.singleShot(2000, self._updater.start)
-
-    def _check_for_updates(self):
-        """Manual check triggered from Help menu. Runs a fresh checker and reports result."""
-        current = QApplication.instance().applicationVersion()
-        checker = UpdateChecker(current, self)
-        checker.update_available.connect(self._on_update_available)
-        checker.finished.connect(lambda: self._on_manual_check_done(checker))
-        checker.start()
-        self._manual_check_running = checker
-
-    def _on_manual_check_done(self, checker: "UpdateChecker"):
-        if not self._release_url:
-            QMessageBox.information(self, "No updates", "You are on the latest version.")
-
-    @pyqtSlot(str, str)
-    def _on_update_available(self, version: str, url: str):
-        self._release_url = url
-        current = QApplication.instance().applicationVersion()
-        self._update_lbl.setText(
-            f"IsoDAQ Studio v{version} is available — you have v{current}")
-        self._update_banner.show()
-        self._notify_update(version)
-
-    def _notify_update(self, version: str):
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            return
-        self._tray.show()
-        self._tray.showMessage(
-            "IsoDAQ Studio update available",
-            f"Version {version} is ready to download. Click to open.",
-            QSystemTrayIcon.MessageIcon.Information,
-            6000,  # ms the notification stays visible
-        )
-
-    def _open_release_page(self):
-        import webbrowser
-        if self._release_url:
-            webbrowser.open(self._release_url)
 
     def _show_about(self):
         ver = QApplication.instance().applicationVersion()

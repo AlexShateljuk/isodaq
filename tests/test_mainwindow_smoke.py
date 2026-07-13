@@ -30,11 +30,12 @@ def qapp():
 
 
 def test_mainwindow_constructs(qapp, tmp_path, monkeypatch):
+    from ui.controllers.update_manager import UpdateManager
     from ui.main_window import MainWindow
 
     # Sandbox persisted settings and skip the network update check.
     monkeypatch.setattr(MainWindow, "_CONFIG_PATH", tmp_path / "config.json")
-    monkeypatch.setattr(MainWindow, "_start_update_check", lambda self: None)
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
 
     w = MainWindow()
     try:
