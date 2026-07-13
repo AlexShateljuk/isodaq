@@ -24,7 +24,7 @@ def _saved_language() -> str:
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("IsoDAQ Studio")
-    app.setApplicationVersion("0.2.1")
+    app.setApplicationVersion("0.2.2")
     if _ICON.exists():
         app.setWindowIcon(QIcon(str(_ICON)))
 

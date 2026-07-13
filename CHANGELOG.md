@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-07-13
+
+This is primarily an open-source-readiness release: licensing, security
+hardening, tests + CI, docs, a major internal refactor, and i18n groundwork.
+
 ### Added
 - **Apache-2.0 license** (`LICENSE`, `NOTICE`).
 - Community & project docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`,
@@ -81,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auto-update check, Simple/Advanced mode, LAN session sharing with STUN +
   signaling server.
 
-[Unreleased]: https://github.com/AlexShateljuk/isodaq/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/AlexShateljuk/isodaq/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/AlexShateljuk/isodaq/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/AlexShateljuk/isodaq/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/AlexShateljuk/isodaq/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AlexShateljuk/isodaq/releases/tag/v0.1.0
