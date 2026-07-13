@@ -680,7 +680,7 @@ class MainWindow(QMainWindow):
 
 
     def _build_custom_cmd(self) -> QWidget:
-        from PyQt6.QtWidgets import QTextEdit as QTE, QSizePolicy as QSP
+        from PyQt6.QtWidgets import QTextEdit as QTE
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(10, 8, 10, 8)
@@ -1614,12 +1614,42 @@ class MainWindow(QMainWindow):
             Path(path).write_text(json.dumps(self._engine.to_dict_list(), indent=2))
 
     def _load_triggers(self):
-        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getOpenFileName(self, "Load triggers", "", "JSON (*.json)")
-        if path:
+        if not path:
+            return
+        try:
             data = json.loads(Path(path).read_text())
-            self._engine.from_dict_list(data)
-            self._trigger_panel._rebuild_list()
+        except Exception as e:
+            QMessageBox.warning(self, "Load failed", f"Could not read triggers file:\n{e}")
+            return
+
+        # Security gate: [python] triggers execute arbitrary code on this machine.
+        allow_python = True
+        py_count = TriggerEngine.count_python(data)
+        if py_count:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("This file runs custom code")
+            box.setText(
+                f"This trigger file contains {py_count} custom <b>Python</b> rule(s).\n"
+                "Python triggers run arbitrary code on your computer when a serial "
+                "line matches.\n\nOnly enable them if you trust the source of this file.")
+            b_enable  = box.addButton("Load && enable", QMessageBox.ButtonRole.AcceptRole)
+            b_disable = box.addButton("Load disabled",  QMessageBox.ButtonRole.DestructiveRole)
+            b_cancel  = box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(b_disable)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is b_cancel:
+                return
+            allow_python = clicked is b_enable
+
+        self._engine.from_dict_list(data, allow_python=allow_python)
+        self._trigger_panel._rebuild_list()
+        if py_count and not allow_python:
+            self._log("SYS", f"Loaded {py_count} Python trigger(s) DISABLED — "
+                             "open a rule in the editor to review and enable it.", C_SYS)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Terminal helpers
@@ -1777,7 +1807,6 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
-        from PyQt6.QtGui import QKeyEvent
         # Inspect mode (app-wide filter): first click reports the widget, eats the click
         if self._inspect_mode and event.type() == QEvent.Type.MouseButtonPress:
             from PyQt6.QtGui import QCursor

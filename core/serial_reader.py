@@ -20,6 +20,10 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 
 class SerialReader(QThread):
+    """Background serial reader. Configure with :meth:`configure`, then start the
+    thread; it emits ``line_received(line, timestamp)`` per line and the
+    connection-state signals below. All I/O stays off the GUI thread."""
+
     # Signals emitted to GUI thread
     line_received = pyqtSignal(str, str)   # (line, timestamp)
     error_occurred = pyqtSignal(str)

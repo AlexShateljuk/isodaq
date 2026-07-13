@@ -30,6 +30,32 @@ _lock     = threading.Lock()
 _TTL      = 3600   # seconds
 _VIEWER_TTL = 30   # seconds a viewer is considered present after its last poll
 
+# ── Abuse limits (OSS3) ─────────────────────────────────────────────────────────
+# The public relay is a shared, unauthenticated resource. Without caps a single
+# client can exhaust memory (spam /register), brute-force the 6-digit code space
+# (/lookup enumeration), or blow up a tunnel's fan-out. Tune via env for self-hosts.
+_MAX_SESSIONS        = int(os.environ.get("ISODAQ_MAX_SESSIONS", 500))   # global live-tunnel cap
+_MAX_SESSIONS_PER_IP = int(os.environ.get("ISODAQ_MAX_PER_IP", 20))      # per-source tunnel cap
+_MAX_VIEWERS         = int(os.environ.get("ISODAQ_MAX_VIEWERS", 50))     # per-tunnel viewer cap
+_MAX_BODY            = 1 << 20   # 1 MiB — reject oversized request bodies
+_RATE_WINDOW         = 60.0      # sliding-window length, seconds
+_RATE_MAX            = 60        # max register+lookup requests per IP per window
+
+_hits: dict[str, collections.deque] = {}   # ip → deque[request timestamps]
+
+
+def _rate_ok(ip: str) -> bool:
+    """Sliding-window limiter for the abuse-prone endpoints (register, lookup)."""
+    now = time.time()
+    with _lock:
+        dq = _hits.setdefault(ip, collections.deque())
+        while dq and dq[0] < now - _RATE_WINDOW:
+            dq.popleft()
+        if len(dq) >= _RATE_MAX:
+            return False
+        dq.append(now)
+        return True
+
 
 # ── Tunnel session ─────────────────────────────────────────────────────────────
 
@@ -68,6 +94,8 @@ class _TunnelSession:
         with self.lock:
             v   = self.viewers.get(viewer_id)
             new = v is None
+            if new and len(self.viewers) >= _MAX_VIEWERS:
+                return []   # fan-out cap reached — refuse new viewers on this tunnel
             if new:
                 v = _Viewer()
                 for m in list(self.recent):   # let a mid-stream viewer catch up
@@ -109,6 +137,10 @@ def _clean() -> None:
         for k in expired:
             del _sessions[k]
             _tunnels.pop(k, None)
+        # Prune rate-limit buckets that have fully drained (bounds _hits growth)
+        for ip in [ip for ip, dq in _hits.items()
+                   if not dq or dq[-1] < now - _RATE_WINDOW]:
+            del _hits[ip]
 
 
 def _gen_code() -> str:
@@ -132,6 +164,13 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:   # silence default access log
         pass
 
+    def _client_ip(self) -> str:
+        """Real client IP, honouring the proxy header the Railway edge sets."""
+        xff = self.headers.get("X-Forwarded-For", "")
+        if xff:
+            return xff.split(",")[0].strip()
+        return self.client_address[0]
+
     def _send_json(self, status: int, obj: dict) -> None:
         body = json.dumps(obj).encode()
         self.send_response(status)
@@ -147,7 +186,14 @@ class _Handler(BaseHTTPRequestHandler):
         parts = self.path.split("?")[0].strip("/").split("/")
 
         if self.path == "/register":
+            src = self._client_ip()
+            if not _rate_ok(src):
+                self._send_json(429, {"error": "Rate limit exceeded — slow down"})
+                return
             length = int(self.headers.get("Content-Length", 0))
+            if length > _MAX_BODY:
+                self._send_json(413, {"error": "Body too large"})
+                return
             try:
                 body = json.loads(self.rfile.read(length))
                 ip   = str(body["ip"])
@@ -158,11 +204,19 @@ class _Handler(BaseHTTPRequestHandler):
 
             _clean()
             with _lock:
+                if len(_sessions) >= _MAX_SESSIONS:
+                    self._send_json(503, {"error": "Relay at capacity — try again later "
+                                                   "or self-host"})
+                    return
+                if sum(1 for s in _sessions.values() if s.get("src") == src) >= _MAX_SESSIONS_PER_IP:
+                    self._send_json(429, {"error": "Too many active sessions from this client"})
+                    return
                 code = _gen_code()
-                _sessions[code] = {"ip": ip, "port": port, "expires": time.time() + _TTL}
+                _sessions[code] = {"ip": ip, "port": port,
+                                   "expires": time.time() + _TTL, "src": src}
                 _tunnels[code]   = _TunnelSession()
 
-            print(f"[register] code={code}  {ip}:{port}", flush=True)
+            print(f"[register] code={code}  {ip}:{port}  src={src}", flush=True)
             self._send_json(200, {"code": code})
 
         elif len(parts) == 3 and parts[0] == "tunnel" and parts[2] == "push":
@@ -173,6 +227,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "No tunnel for this code"})
                 return
             length = int(self.headers.get("Content-Length", 0))
+            if length > _MAX_BODY:
+                self._send_json(413, {"error": "Body too large"})
+                return
             try:
                 body     = json.loads(self.rfile.read(length))
                 messages = body.get("messages", [body] if "d" in body else [])
@@ -192,6 +249,9 @@ class _Handler(BaseHTTPRequestHandler):
         parts = path.strip("/").split("/")
 
         if len(parts) == 2 and parts[0] == "lookup":
+            if not _rate_ok(self._client_ip()):
+                self._send_json(429, {"error": "Rate limit exceeded — slow down"})
+                return
             code = parts[1]
             with _lock:
                 sess = _sessions.get(code)
@@ -217,7 +277,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"messages": messages})
 
         elif path in ("/", "/health"):
-            self._send_json(200, {"status": "ok", "sessions": len(_sessions)})
+            self._send_json(200, {"status": "ok", "sessions": len(_sessions),
+                                  "limit": _MAX_SESSIONS})
 
         else:
             self._send_json(404, {"error": "Not found"})

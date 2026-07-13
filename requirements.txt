@@ -1,6 +1,11 @@
-PyQt6>=6.6.0
-pyserial>=3.5
-numpy>=1.26
-pyqtgraph>=0.13
-
-pyqt6-sip
+# Runtime dependencies.
+# Ranges keep a floor of known-good versions and a ceiling at the next major to
+# avoid surprise breakage from an incompatible upstream release.
+#
+# For reproducible installs (CI / release builds) pin the exact tested set:
+#   pip install -r requirements.txt -c constraints.txt
+PyQt6>=6.6,<7
+PyQt6-sip>=13.6,<14
+pyserial>=3.5,<4
+numpy>=1.26,<3
+pyqtgraph>=0.13,<0.14

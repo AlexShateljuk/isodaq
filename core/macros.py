@@ -42,6 +42,9 @@ class MacroStep:
 
 @dataclass
 class Macro:
+    """A named, ordered sequence of :class:`MacroStep` sent with a shared
+    end-of-line (``eol``). Driven non-blockingly by ``MacroRunner``."""
+
     name:  str             = "New macro"
     eol:   str             = "\\r\\n"
     steps: list[MacroStep] = field(default_factory=list)

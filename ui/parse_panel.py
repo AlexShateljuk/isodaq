@@ -60,7 +60,7 @@ class _ChRow(QWidget):
         lay.addWidget(self._ind_dot)
 
         self._refresh_dots()
-        
+
         edit_btn = QPushButton("✏")
         edit_btn.setObjectName("iconBtn")
         edit_btn.setFixedSize(18, 18)

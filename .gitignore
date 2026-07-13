@@ -45,10 +45,12 @@ IDEAS.md
 # Claude Code
 .claude/
 
-# Screenshots
+# Screenshots (loose images in the repo root are dev captures, not assets)
 *.png
 *.jpg
 *.jpeg
+# …but bundled UI assets must always be tracked (icons, arrow SVGs, etc.)
+!ui/resources/**
 
 # Dev tools / test scripts
 tools/

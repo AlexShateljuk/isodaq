@@ -1,0 +1,8 @@
+# Known-good exact versions — the set IsoDAQ Studio is developed and tested
+# against. Use for reproducible installs / release builds:
+#   pip install -r requirements.txt -c constraints.txt
+PyQt6==6.10.2
+PyQt6-sip==13.10.2
+pyserial==3.5
+numpy==2.0.2
+pyqtgraph==0.13.7

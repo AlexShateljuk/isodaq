@@ -3,6 +3,9 @@
 A serial terminal and real-time data acquisition frontend for embedded systems development.  
 Built with **Python 3 · PyQt6 · pyqtgraph**, runs on **Windows · Linux · macOS**.
 
+[![CI](https://github.com/AlexShateljuk/isodaq/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexShateljuk/isodaq/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 ---
 
 ## Running from source
@@ -295,6 +298,9 @@ SessionClient (QThread)  ← viewer side
     └── line_received → MainWindow._on_remote_line()
 ```
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full module map,
+threading model, and a "where do I add…?" guide for contributors.
+
 ---
 
 ## Project structure
@@ -361,3 +367,26 @@ pyqtgraph >= 0.13
 numpy >= 1.26
 pyqt6-sip
 ```
+
+---
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
+the checks CI runs (`ruff check .` + `pytest`). Please also read the
+[Code of Conduct](CODE_OF_CONDUCT.md). Changes are tracked in
+[CHANGELOG.md](CHANGELOG.md).
+
+## Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md).
+Note that `[python]` triggers and custom parser snippets execute arbitrary Python
+by design; never enable Python rules from a config file you don't trust.
+
+## License
+
+IsoDAQ Studio is licensed under the **Apache License 2.0** — see [LICENSE](LICENSE)
+and [NOTICE](NOTICE). You are free to use, modify, and distribute it, including for
+commercial purposes, provided you retain the copyright/attribution notices.
+
+Copyright 2026 eSOMtech.

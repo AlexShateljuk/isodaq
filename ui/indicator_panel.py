@@ -226,7 +226,7 @@ class IndicatorPanel(QWidget):
         self._reflow()
 
     def _reflow(self) -> None:
-        for i, (name, card) in enumerate(self._cards.items()):
+        for i, card in enumerate(self._cards.values()):
             row, col = divmod(i, COLS)
             self._grid.addWidget(card, row, col)
 

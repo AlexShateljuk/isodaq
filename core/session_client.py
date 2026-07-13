@@ -28,6 +28,11 @@ PING_TIMEOUT  = 6.0   # seconds before TCP connection considered lost
 
 
 class SessionClient(QThread):
+    """Viewer side of session sharing. Given ``host:port`` it connects over TCP;
+    given a ``relay_url`` it long-polls the relay instead. Either way it emits
+    ``line_received(line, ts, kind)`` for the GUI, plus connection/latency and
+    ``host_closed`` signals."""
+
     line_received   = pyqtSignal(str, float, str)  # (line, timestamp, kind)
     connected       = pyqtSignal(str)              # "host:port" or "relay/host"
     disconnected    = pyqtSignal()

@@ -148,12 +148,32 @@ class _SQLiteWriter:
 class _LogWriter(threading.Thread):
     def __init__(self, q: queue.Queue):
         super().__init__(daemon=True, name="LogWriter")
-        self._q        = q
-        self._stop_ev  = threading.Event()   # renamed: threading.Thread has its own _stop
-        self.file      = _FileWriter()
-        self.db        = _SQLiteWriter()
+        self._q         = q
+        self._stop_ev   = threading.Event()   # renamed: threading.Thread has its own _stop
+        self._flush_req = threading.Event()   # session-stop asks the thread to drain + flush
+        self._flush_done = threading.Event()
+        self.file       = _FileWriter()
+        self.db         = _SQLiteWriter()
 
     def stop(self): self._stop_ev.set()
+
+    def flush_and_wait(self, timeout: float = 2.0) -> None:
+        """Drain everything queued so far and write it, *before* the caller closes
+        the sinks. Prevents loss of the last (sub-interval) batch on session stop."""
+        if not self.is_alive():
+            return
+        self._flush_done.clear()
+        self._flush_req.set()
+        self._flush_done.wait(timeout=timeout)
+
+    def _drain_into(self, fbuf: list[_Msg], dbuf: list[_Msg]) -> None:
+        while True:
+            try:
+                m: _Msg = self._q.get_nowait()
+            except queue.Empty:
+                break
+            if self.file.active: fbuf.append(m)
+            if self.db.active:   dbuf.append(m)
 
     def run(self):
         fbuf: list[_Msg] = []
@@ -161,37 +181,46 @@ class _LogWriter(threading.Thread):
         t_file = t_db = time.monotonic()
 
         while not self._stop_ev.is_set():
-            try:
-                while True:
-                    m: _Msg = self._q.get_nowait()
-                    if self.file.active: fbuf.append(m)
-                    if self.db.active:   dbuf.append(m)
-                    if len(fbuf) >= FILE_BATCH:
-                        self.file.write_batch(fbuf); fbuf.clear(); t_file = time.monotonic()
-                    if len(dbuf) >= DB_BATCH:
-                        self.db.write_batch(dbuf);   dbuf.clear(); t_db   = time.monotonic()
-            except queue.Empty:
-                pass
+            self._drain_into(fbuf, dbuf)
+            if len(fbuf) >= FILE_BATCH:
+                self.file.write_batch(fbuf); fbuf.clear(); t_file = time.monotonic()
+            if len(dbuf) >= DB_BATCH:
+                self.db.write_batch(dbuf);   dbuf.clear(); t_db   = time.monotonic()
 
             now = time.monotonic()
             if fbuf and now - t_file >= FILE_INTERVAL:
                 self.file.write_batch(fbuf); fbuf.clear(); t_file = now
             if dbuf and now - t_db   >= DB_INTERVAL:
                 self.db.write_batch(dbuf);   dbuf.clear(); t_db   = now
+
+            # Session-stop flush handshake: drain the queue and write both buffers
+            # now, while the sinks are still open.
+            if self._flush_req.is_set():
+                self._drain_into(fbuf, dbuf)
+                self.file.write_batch(fbuf); fbuf.clear(); t_file = time.monotonic()
+                self.db.write_batch(dbuf);   dbuf.clear(); t_db   = time.monotonic()
+                self._flush_req.clear()
+                self._flush_done.set()
+
             time.sleep(0.005)
 
-        # Final drain
-        tail: list[_Msg] = []
-        while not self._q.empty():
-            try: tail.append(self._q.get_nowait())
-            except queue.Empty: break
-        if tail:
-            if self.file.active: self.file.write_batch(tail)
-            if self.db.active:   self.db.write_batch(tail)
+        # Final drain on thread shutdown
+        self._drain_into(fbuf, dbuf)
+        if fbuf: self.file.write_batch(fbuf)
+        if dbuf: self.db.write_batch(dbuf)
         self.file.close(); self.db.close()
 
 
 class Logger:
+    """Public logging facade.
+
+    :meth:`write_line` / :meth:`write_trigger_event` are called from the serial
+    thread and only enqueue (never block on I/O); a background writer thread
+    batches to a file (CSV/JSON/txt) and/or SQLite. :meth:`start` opens a new
+    timestamped session, :meth:`stop` flushes and closes it, :meth:`shutdown`
+    also stops the writer thread. Writes while inactive are dropped.
+    """
+
     def __init__(self):
         self._q: queue.Queue[_Msg] = queue.Queue()
         self._w = _LogWriter(self._q)
@@ -214,6 +243,8 @@ class Logger:
 
     # ── Session ───────────────────────────────────────────────────────────────
     def start(self) -> tuple[Path | None, Path | None]:
+        """Open a new timestamped session. Returns ``(file_path, db_path)``;
+        either is ``None`` if that sink is disabled."""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._log_dir.mkdir(parents=True, exist_ok=True)
         self._cur_file = self._cur_db = None
@@ -231,9 +262,10 @@ class Logger:
         return self._cur_file, self._cur_db
 
     def stop(self):
+        self._active = False               # no new lines enter the queue past here
+        self._w.flush_and_wait()           # drain + write the last buffered batch first
         self._w.file.close()
         self._w.db.close()
-        self._active = False
 
     @property
     def active(self) -> bool: return self._active

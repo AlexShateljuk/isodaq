@@ -47,6 +47,10 @@ def _to_float(s: str) -> float | None:
 
 @dataclass
 class ChannelConfig:
+    """One extraction rule: which ``key`` (and optional ``unit``/``prefix``) to
+    pull from a line, and how to ``scale``/``offset`` the number. See the module
+    docstring for the value formats recognised."""
+
     name: str
     key: str
     unit: str = ""
@@ -83,6 +87,14 @@ class ChannelConfig:
 
 
 class DataParser:
+    """Extracts numeric channels from serial lines.
+
+    Holds a list of :class:`ChannelConfig` rules plus an optional user Python
+    ``snippet``. :meth:`parse` runs both and returns ``{channel_name: value}``;
+    snippet values win on name collision. The snippet is ``exec()``'d code —
+    see SECURITY.md.
+    """
+
     def __init__(self):
         self._channels: list[ChannelConfig] = []
         self._snippet: str = ""

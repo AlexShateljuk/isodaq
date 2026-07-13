@@ -24,6 +24,14 @@ from typing import Callable
 
 @dataclass
 class Trigger:
+    """One match rule + the actions to fire when a serial line matches it.
+
+    ``type`` selects the matcher: ``contains`` (case-insensitive substring),
+    ``regex``, or ``python`` (a ``lambda line: ...`` predicate). Python triggers
+    execute code, so one loaded from an untrusted source is held ``_blocked``
+    (never ``eval()``'d) until :meth:`trust` is called. See SECURITY.md.
+    """
+
     name:    str
     pattern: str
     type:    str  = "contains"   # contains | regex | python
@@ -46,6 +54,9 @@ class Trigger:
     # Internal compiled state
     _compiled: object     = field(default=None, repr=False)
     _fn:       Callable | None = field(default=None, repr=False)
+    # Security: a "python" trigger loaded from an untrusted source is blocked
+    # from ever being eval()'d until the user explicitly trusts/edits it.
+    _blocked:  bool       = field(default=False, repr=False)
 
     def compile(self) -> str | None:
         """Returns error string on failure, None on success."""
@@ -54,6 +65,8 @@ class Trigger:
             if self.type == "regex":
                 self._compiled = re.compile(self.pattern, re.IGNORECASE)
             elif self.type == "python":
+                if self._blocked:
+                    return "Blocked: untrusted Python trigger (not enabled)"
                 self._fn = eval(self.pattern)          # noqa: S307
                 if not callable(self._fn):
                     return "Expression must be callable (lambda)"
@@ -62,6 +75,7 @@ class Trigger:
         return None
 
     def matches(self, line: str) -> bool:
+        """True if *line* matches. Never raises: a matcher error returns False."""
         if not self.enabled:
             return False
         try:
@@ -72,12 +86,19 @@ class Trigger:
                     self._compiled = re.compile(self.pattern, re.IGNORECASE)
                 return bool(self._compiled.search(line))
             elif self.type == "python":
+                if self._blocked:
+                    return False
                 if self._fn is None:
                     self._fn = eval(self.pattern)      # noqa: S307
                 return bool(self._fn(line))
         except Exception:
             return False
         return False
+
+    def trust(self) -> str | None:
+        """Un-block a previously blocked Python trigger and (re)compile it."""
+        self._blocked = False
+        return self.compile()
 
 
 class TriggerEngine:
@@ -128,6 +149,8 @@ class TriggerEngine:
     # ── Hot path ──────────────────────────────────────────────────────────────
 
     def check(self, line: str, ts: str):
+        """Hot path: test *line* against every trigger, firing callbacks +
+        notifications for each match. Called once per received serial line."""
         with self._lock:
             triggers = list(self._triggers)
         for t in triggers:
@@ -157,7 +180,16 @@ class TriggerEngine:
                 "notify_tg_chat": t.notify_tg_chat,
             } for t in self._triggers]
 
-    def from_dict_list(self, data: list[dict]):
+    @staticmethod
+    def count_python(data: list[dict]) -> int:
+        """How many entries are executable [python] triggers (for load warnings)."""
+        return sum(1 for d in data if d.get("type") == "python")
+
+    def from_dict_list(self, data: list[dict], allow_python: bool = True):
+        """
+        Load triggers. If allow_python is False, [python] triggers are added but
+        left *blocked* — their code is never eval()'d until the user trusts them.
+        """
         with self._lock: self._triggers.clear()
         for d in data:
             t = Trigger(
@@ -172,7 +204,12 @@ class TriggerEngine:
                 notify_url=d.get("notify_url",""),
                 notify_tg_chat=d.get("notify_tg_chat",""),
             )
-            self.add_trigger(t)
+            if t.type == "python" and not allow_python:
+                t._blocked = True
+                t.enabled  = False   # show as off in the UI until the user trusts it
+            t.compile()   # blocked python triggers skip eval; errors are non-fatal
+            with self._lock:
+                self._triggers.append(t)
 
 
 def parse_trigger_line(text: str) -> tuple[str, str]:

@@ -10,6 +10,10 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 
 class UpdateChecker(QThread):
+    """Queries the GitHub Releases API once on a background thread and emits
+    ``update_available(version, url)`` if a newer tag than ``current_version``
+    exists. Silent on network errors."""
+
     update_available = pyqtSignal(str, str)   # (version_str, release_url)
 
     _API = "https://api.github.com/repos/AlexShateljuk/isodaq/releases/latest"

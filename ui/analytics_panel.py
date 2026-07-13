@@ -146,7 +146,7 @@ class AnalyticsPanel(QWidget):
 
     def _clear(self) -> None:
         self._t0 = time.monotonic()
-        for name, s in self._series.items():
+        for s in self._series.values():
             s["hits_t"].clear()
             s["count"] = 0
             s["curve"].setData([], [])

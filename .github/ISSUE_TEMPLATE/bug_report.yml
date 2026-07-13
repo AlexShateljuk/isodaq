@@ -1,0 +1,46 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please reproduce on the latest
+        release first. For **security** issues, do not use this form — see
+        [SECURITY.md](../blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, expected vs. actual behaviour.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: IsoDAQ Studio version
+      placeholder: "e.g. 0.2.1 (Help → About)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version (if running from source)
+      placeholder: "e.g. 3.11"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      description: Paste any console output or traceback. This is automatically formatted.
+      render: shell

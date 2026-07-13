@@ -1,0 +1,27 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+# GUI resources, build artifacts and throwaway harnesses aren't linted.
+extend-exclude = ["tools", "emulator", "build", "dist", "*.spec"]
+
+[tool.ruff.lint]
+# Real-bug rules: pyflakes (F), bugbear (B) and the safe pycodestyle (E/W) set.
+# The codebase deliberately uses a compact one-statement-per-line style, so the
+# purely-cosmetic E70x / E501 checks are disabled rather than fighting them.
+# Import-sort (I) and pyupgrade (UP) are intentionally left out for now: enabling
+# them would rewrite ~20 unrelated files. Add them later in a dedicated pass.
+select = ["F", "E", "W", "B"]
+ignore = [
+    "E701",  # multiple statements on one line (colon)   — intentional compact style
+    "E702",  # multiple statements on one line (semicolon)
+    "E741",  # ambiguous var name (l) — used in lambdas/loops
+    "E501",  # line too long — many aligned tables exceed 100
+    "B008",  # function call in default arg
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
