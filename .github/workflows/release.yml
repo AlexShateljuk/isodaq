@@ -20,8 +20,15 @@ jobs:
           - os: ubuntu-22.04
             artifact: IsoDAQ-Studio-linux-x64.tar.gz
             dist_name: IsoDAQ Studio
-          - os: macos-latest
+          # macOS is built per-arch: macos-13 runners are Intel (x64),
+          # macos-14 runners are Apple Silicon (arm64). PyInstaller builds for
+          # the runner's native arch (spec target_arch=None), so each artifact
+          # is named honestly and Intel users no longer get an arm64 binary.
+          - os: macos-13
             artifact: IsoDAQ-Studio-macos-x64.zip
+            dist_name: IsoDAQ Studio.app
+          - os: macos-14
+            artifact: IsoDAQ-Studio-macos-arm64.zip
             dist_name: IsoDAQ Studio.app
 
     runs-on: ${{ matrix.os }}
@@ -69,12 +76,24 @@ jobs:
         run: |
           tar -czf "${{ matrix.artifact }}" -C dist "IsoDAQ Studio"
 
-      # ── macOS: zip the .app bundle ───────────────────────────────────────────
+      # ── macOS: ad-hoc sign, then zip the .app bundle ─────────────────────────
+      # We don't have an Apple Developer certificate, so builds are not
+      # notarized. An ad-hoc signature (--sign -) is still required for arm64
+      # binaries to run at all, and prevents the "app is damaged" error. Users
+      # bypass Gatekeeper's "unidentified developer" prompt via right-click →
+      # Open (documented in the README).
+      - name: Ad-hoc sign the .app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - "dist/IsoDAQ Studio.app"
+          codesign --verify --deep --strict --verbose=2 "dist/IsoDAQ Studio.app"
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
+          # ditto preserves the signature & bundle metadata better than zip
           cd dist
-          zip -r "../${{ matrix.artifact }}" "IsoDAQ Studio.app"
+          ditto -c -k --keepParent "IsoDAQ Studio.app" "../${{ matrix.artifact }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -100,3 +119,4 @@ jobs:
             IsoDAQ-Studio-windows-x64.zip
             IsoDAQ-Studio-linux-x64.tar.gz
             IsoDAQ-Studio-macos-x64.zip
+            IsoDAQ-Studio-macos-arm64.zip

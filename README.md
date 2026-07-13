@@ -30,7 +30,17 @@ Download the latest release for your platform from the
 |----------|------|-----------|
 | Windows 10/11 x64 | `IsoDAQ-Studio-windows-x64.zip` | Extract → run `IsoDAQ Studio.exe` |
 | Linux x64 | `IsoDAQ-Studio-linux-x64.tar.gz` | Extract → `chmod +x "IsoDAQ Studio"` → run `./IsoDAQ\ Studio` |
-| macOS 13+ x64 | `IsoDAQ-Studio-macos-x64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
+| macOS Apple Silicon (M1+) | `IsoDAQ-Studio-macos-arm64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
+| macOS Intel | `IsoDAQ-Studio-macos-x64.zip` | Extract → drag `IsoDAQ Studio.app` to Applications |
+
+> **Unsigned builds:** releases are not code-signed/notarized (no paid
+> certificates), so the OS shows a first-run warning. This is expected.
+> - **macOS** — Gatekeeper says *"unidentified developer"*: **right-click the
+>   app → Open → Open**, once. (If you see *"damaged"*, remove the quarantine
+>   flag: `xattr -dr com.apple.quarantine "IsoDAQ Studio.app"`.) Pick the build
+>   matching your chip — arm64 for M1/M2/M3, x64 for Intel.
+> - **Windows** — SmartScreen shows *"Windows protected your PC"*: click
+>   **More info → Run anyway**.
 
 > **Linux note:** if the app does not start, install the Qt platform plugin dependencies:
 > ```bash

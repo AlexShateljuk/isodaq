@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *Load & enable / Load disabled / Cancel*.
 
 ### Fixed
+- **macOS release was mislabelled** — the `macos-latest` runner is Apple Silicon
+  but the artifact was named `…-x64`, so Intel users got an incompatible binary.
+  Releases now build both `macos-arm64` and `macos-x64` (on macos-14 / macos-13)
+  with honest names. The `.app` is ad-hoc signed so arm64 builds run without the
+  "damaged" error; README documents the Gatekeeper/SmartScreen workarounds.
 - **Logger dropped the last buffered batch on session stop** — `Logger.stop()`
   closed the sinks before the writer thread flushed its sub-interval buffer, so
   the last ≤0.2 s of lines were silently lost. Added a flush handshake.
