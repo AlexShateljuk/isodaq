@@ -62,6 +62,7 @@ from ui.controllers.update_manager import UpdateManager
 from ui.controllers.dev_tools import DevTools
 from ui.controllers.search_controller import SearchController
 from ui.controllers.settings_manager import SettingsManager
+from ui.controllers.serial_controller import SerialController
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -177,8 +178,6 @@ class MainWindow(QMainWindow):
         self._terminal_font_size: int = 11
         self._scrollback_limit: int = 5000
         self._current_theme: str = "vscode"
-        self._cmd_history: list[str] = []
-        self._hist_idx = 0
         self._rx_bytes = 0
         self._tx_bytes = 0
         self._session_sec = 0
@@ -197,6 +196,8 @@ class MainWindow(QMainWindow):
         self._search = SearchController(self)
         # Config persistence + Preferences dialog (OSS6).
         self._settings = SettingsManager(self)
+        # Serial connect/send/ports + command history (OSS6).
+        self._serial = SerialController(self)
 
         # Per-line identity for "jump to log line" (F2) and in-log search (F1)
         self._line_seq: int = 0
@@ -208,7 +209,7 @@ class MainWindow(QMainWindow):
         self._start_timers()
         self._settings.load()   # restore persisted state before first port scan
         self._sync_analytics()  # populate analytics with initial trigger list
-        self._refresh_ports()
+        self._serial.refresh_ports()
         self._updates.start()
         self._devtools.setup()
 
@@ -259,7 +260,7 @@ class MainWindow(QMainWindow):
         file_m.addAction(QAction("Exit", self, triggered=self.close))
 
         device_m = mb.addMenu("Device")
-        device_m.addAction(QAction("Refresh ports", self, triggered=self._refresh_ports))
+        device_m.addAction(QAction("Refresh ports", self, triggered=self._serial.refresh_ports))
 
         view_m = mb.addMenu("View")
         view_m.addAction(QAction("Find…", self, shortcut="Ctrl+F",
@@ -333,12 +334,12 @@ class MainWindow(QMainWindow):
         r1.addWidget(self._port_combo)
         self._refresh_btn = QPushButton("⟳")
         self._refresh_btn.setFixedWidth(50)
-        self._refresh_btn.clicked.connect(self._refresh_ports)
+        self._refresh_btn.clicked.connect(self._serial.refresh_ports)
         r1.addWidget(self._refresh_btn)
         self._conn_btn = QPushButton("Connect")
         self._conn_btn.setObjectName("connectBtn")
         self._conn_btn.setFixedWidth(100)
-        self._conn_btn.clicked.connect(self._toggle_connection)
+        self._conn_btn.clicked.connect(self._serial.toggle_connection)
         r1.addWidget(self._conn_btn)
         self._share_btn = QPushButton("Share")
         self._share_btn.setObjectName("shareBtn")
@@ -493,8 +494,8 @@ class MainWindow(QMainWindow):
         self._cmd_edit = QLineEdit()
         self._cmd_edit.setObjectName("cmdEdit")
         self._cmd_edit.setPlaceholderText("Command… (↑↓ history)")
-        self._cmd_edit.installEventFilter(self)
-        self._cmd_edit.returnPressed.connect(self._send_command)
+        self._cmd_edit.installEventFilter(self._serial)
+        self._cmd_edit.returnPressed.connect(self._serial.send_command)
         cr.addWidget(self._cmd_edit)
         self._eol_combo = QComboBox()
         self._eol_combo.addItems(["\\r\\n","\\n","\\r","None"])
@@ -503,7 +504,7 @@ class MainWindow(QMainWindow):
         self._send_btn = QPushButton("Send")
         self._send_btn.setObjectName("sendBtn")
         self._send_btn.setFixedWidth(54)
-        self._send_btn.clicked.connect(self._send_command)
+        self._send_btn.clicked.connect(self._serial.send_command)
         cr.addWidget(self._send_btn)
         lay.addLayout(cr)
 
@@ -649,7 +650,7 @@ class MainWindow(QMainWindow):
         sb = QPushButton("Send custom")
         sb.setObjectName("add")
         sb.setFixedHeight(26)
-        sb.clicked.connect(self._send_custom)
+        sb.clicked.connect(self._serial.send_custom)
         lay.addWidget(sb)
         return w
 
@@ -697,9 +698,7 @@ class MainWindow(QMainWindow):
         _sb.sliderPressed.connect(lambda: setattr(self, "_user_scrolling", True))
         _sb.sliderReleased.connect(lambda: setattr(self, "_user_scrolling", False))
         self._reader.line_received.connect(self._on_line_received)
-        self._reader.error_occurred.connect(self._on_serial_error)
-        self._reader.connected.connect(self._on_connected)
-        self._reader.disconnected.connect(self._on_disconnected)
+        self._serial.wire()   # reader connection-state signals → SerialController
 
         # Trigger matches → GUI highlight + log
         self._engine.on_match(self._on_trigger_match_threadsafe)
@@ -758,34 +757,12 @@ class MainWindow(QMainWindow):
         # Broadcast to any connected session viewers (no-op if not sharing)
         self._session.feed_line(line, "rx")
 
-    @pyqtSlot(str)
-    def _on_serial_error(self, msg: str):
-        self._log("ERR", msg, C_ERR)
-
     @staticmethod
     def _repolish(widget) -> None:
         """Force Qt to re-evaluate the stylesheet after an objectName change."""
         widget.style().unpolish(widget)
         widget.style().polish(widget)
         widget.update()
-
-    @pyqtSlot(str, int)
-    def _on_connected(self, port: str, baud: int):
-        self._conn_btn.setText("Disconnect")
-        self._conn_btn.setObjectName("disconnectBtn")
-        self._repolish(self._conn_btn)
-        self._sb_conn.setText(f"● {port} · {baud}")
-        self._sb_conn.setStyleSheet(f"color:{C_OK.name()}")
-        self._log("SYS", f"Connected: {port} @ {baud}", C_OK)
-
-    @pyqtSlot()
-    def _on_disconnected(self):
-        self._conn_btn.setText("Connect")
-        self._conn_btn.setObjectName("connectBtn")
-        self._repolish(self._conn_btn)
-        self._sb_conn.setText("● Disconnected")
-        self._sb_conn.setStyleSheet(f"color:{C_ERR.name()}")
-        self._log("SYS", "Disconnected.", C_SYS)
 
     # ── Trigger match (called from serial thread via engine callback) ──────────
 
@@ -886,85 +863,6 @@ class MainWindow(QMainWindow):
             self._indicator_panel.add_indicator(name)
         else:
             self._indicator_panel.remove_indicator(name)
-
-    # ═════════════════════════════════════════════════════════════════════════
-    # Actions
-    # ═════════════════════════════════════════════════════════════════════════
-
-    def _toggle_connection(self):
-        """
-        Connect or disconnect the serial port.
-        Reads port, baud, data-bits, parity, stop-bits and flow-control
-        from the UI combos before opening the port.
-        """
-        if self._reader.isRunning():
-            self._reader.disconnect_port()
-        else:
-            data_str = self._data_combo.currentText()  # e.g. "8N1"
-            bytesize = int(data_str[0])
-            parity   = data_str[1]
-            stopbits = int(data_str[2])
-            self._reader.configure(
-                port     = self._port_combo.currentText(),
-                baud     = int(self._baud_combo.currentText()),
-                bytesize = bytesize,
-                parity   = parity,
-                stopbits = stopbits,
-                flow     = self._flow_combo.currentText(),
-            )
-            err = self._reader.connect_port()
-            if err:
-                self._log("ERR", f"Connection failed: {err}", C_ERR)
-
-    def _send_command(self):
-        """
-        Sends the text in the command line edit over the serial port.
-        Appends the selected EOL (\\r\\n / \\n / \\r / none), logs the TX line,
-        updates TX byte counter, and stores the command in history.
-        """
-        text = self._cmd_edit.text().strip()
-        if not text:
-            return
-        self._cmd_history.append(text)
-        self._hist_idx = len(self._cmd_history)
-
-        eol_map = {"\\r\\n": b"\r\n", "\\n": b"\n", "\\r": b"\r", "None": b""}
-        eol = eol_map.get(self._eol_combo.currentText(), b"\r\n")
-        data = text.encode() + eol
-
-        err = self._reader.send(data)
-        if err:
-            self._log("ERR", err, C_ERR)
-        else:
-            self._tx_bytes += len(data)
-            self._sb_tx.setText(f"TX: {self._fmt_bytes(self._tx_bytes)}")
-            self._log("TX", text, C_TX)
-            self._session.feed_line(text, "tx")
-
-        self._cmd_edit.clear()
-
-    def _send_custom(self):
-        text = self._custom_cmd.toPlainText().strip()
-        if text:
-            self._cmd_edit.setText(text)
-            self._send_command()
-
-    def _set_cmd(self, cmd: str):
-        self._cmd_edit.setText(cmd)
-        self._cmd_edit.setFocus()
-
-    def _refresh_ports(self):
-        """Rescans available COM/tty ports and repopulates the port combo-box."""
-        ports = SerialReader.list_ports()
-        current = self._port_combo.currentText()
-        self._port_combo.clear()
-        self._port_combo.addItems(ports or ["No ports found"])
-        # Priority: currently selected → restored from config → first available
-        restore = getattr(self, "_restore_port", "")
-        prefer = restore if restore in ports else (current if current in ports else "")
-        if prefer:
-            self._port_combo.setCurrentText(prefer)
-        self._log("SYS", f"Ports: {', '.join(ports) if ports else 'none found'}", C_DIM)
 
     # ── Trigger save/load ─────────────────────────────────────────────────────
 
@@ -1141,26 +1039,6 @@ class MainWindow(QMainWindow):
         if self._chk_auto.isChecked() and not self._user_scrolling:
             sb = self._terminal.verticalScrollBar()
             sb.setValue(sb.maximum())
-
-    # ═════════════════════════════════════════════════════════════════════════
-    # Keyboard event filter (↑↓ history)
-    # ═════════════════════════════════════════════════════════════════════════
-
-    def eventFilter(self, obj, event):
-        from PyQt6.QtCore import QEvent
-        # (Inspect-mode click handling lives in DevTools' own app-wide filter;
-        #  the search field's Esc/Enter handling lives in SearchController's.)
-        if obj is getattr(self, "_cmd_edit", None) and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Up and self._cmd_history:
-                self._hist_idx = max(0, self._hist_idx - 1)
-                self._cmd_edit.setText(self._cmd_history[self._hist_idx])
-                return True
-            if key == Qt.Key.Key_Down:
-                self._hist_idx = min(len(self._cmd_history), self._hist_idx + 1)
-                self._cmd_edit.setText(self._cmd_history[self._hist_idx] if self._hist_idx < len(self._cmd_history) else "")
-                return True
-        return super().eventFilter(obj, event)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Timers
