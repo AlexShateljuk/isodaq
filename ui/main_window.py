@@ -61,6 +61,7 @@ from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
 from ui.controllers.dev_tools import DevTools
 from ui.controllers.search_controller import SearchController
+from ui.controllers.settings_manager import SettingsManager
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -194,6 +195,8 @@ class MainWindow(QMainWindow):
         self._devtools = DevTools(self)
         # In-terminal find bar (F1) + trigger→line jump (F2) (OSS6).
         self._search = SearchController(self)
+        # Config persistence + Preferences dialog (OSS6).
+        self._settings = SettingsManager(self)
 
         # Per-line identity for "jump to log line" (F2) and in-log search (F1)
         self._line_seq: int = 0
@@ -203,14 +206,14 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._connect_signals()
         self._start_timers()
-        self._load_settings()   # restore persisted state before first port scan
+        self._settings.load()   # restore persisted state before first port scan
         self._sync_analytics()  # populate analytics with initial trigger list
         self._refresh_ports()
         self._updates.start()
         self._devtools.setup()
 
         # Backup save — fires even when the process is killed without closeEvent
-        QApplication.instance().aboutToQuit.connect(self._save_settings)
+        QApplication.instance().aboutToQuit.connect(self._settings.save)
 
         self._log("SYS", "IsoDAQ Studio started.", C_SYS)
         self._log("SYS", "Scanning serial ports…", C_DIM)
@@ -279,7 +282,7 @@ class MainWindow(QMainWindow):
 
         settings_m = mb.addMenu("Settings")
         settings_m.addAction(QAction("Log Colorizer…", self, triggered=self._open_log_colorizer))
-        settings_m.addAction(QAction("Preferences…",   self, triggered=self._open_preferences))
+        settings_m.addAction(QAction("Preferences…",   self, triggered=self._settings.open_preferences))
 
         help_m = mb.addMenu("Help")
         help_m.addAction(QAction("Check for Updates", self, triggered=self._updates.check_now))
@@ -1219,166 +1222,6 @@ class MainWindow(QMainWindow):
 
     _CONFIG_PATH = Path.home() / ".isodaq_studio" / "config.json"
 
-    def _load_settings(self) -> None:
-        """
-        Restores all UI controls from ~/.isodaq_studio/config.json.
-        Silently ignored on first run or if the file is corrupt.
-        """
-        try:
-            data: dict = json.loads(self._CONFIG_PATH.read_text())
-        except Exception:
-            return
-
-        def _set_combo(combo: QComboBox, key: str):
-            if key in data:
-                idx = combo.findText(str(data[key]))
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-
-        _set_combo(self._baud_combo,   "baud")
-        _set_combo(self._data_combo,   "data")
-        _set_combo(self._flow_combo,   "flow")
-        _set_combo(self._parser_combo, "parser")
-        _set_combo(self._eol_combo,    "eol")
-
-        # Port is restored after _refresh_ports(); store for deferred apply
-        self._restore_port: str = data.get("port", "")
-
-        if "prefix" in data:    self._prefix_edit.setText(data["prefix"])
-        if "sep"    in data:    self._sep_edit.setText(data["sep"])
-
-        if "timestamp"  in data: self._chk_ts.setChecked(bool(data["timestamp"]))
-        if "hex"        in data: self._chk_hex.setChecked(bool(data["hex"]))
-        if "autoscroll" in data: self._chk_auto.setChecked(bool(data["autoscroll"]))
-        if "echo"       in data: self._chk_echo.setChecked(bool(data["echo"]))
-
-        if "font_size" in data:
-            self._terminal_font_size = max(8, min(24, int(data["font_size"])))
-            font = QFont("JetBrains Mono", self._terminal_font_size)
-            self._terminal.setFont(font)
-            self._terminal.document().setDefaultFont(font)
-            self._font_size_lbl.setText(str(self._terminal_font_size))
-
-        if "scrollback" in data:
-            self._scrollback_limit = max(100, min(50000, int(data["scrollback"])))
-
-        if "theme" in data and data["theme"] in ("light", "vscode"):
-            self._apply_theme(data["theme"])
-
-        if "colorizer" in data:
-            self._log_colorizer_enabled = set(data["colorizer"])
-
-        if "channels" in data:
-            self._parser.from_dict_list(data["channels"])
-            self._parse_panel._rebuild()
-            self._parse_panel.sync_display_panels()
-
-        if "snippet" in data and data["snippet"]:
-            self._parser.set_snippet(data["snippet"])
-            self._parse_panel.load_snippet(data["snippet"])
-
-        if "macros" in data:
-            # _macro_panel is built during _build_ui which runs before _load_settings
-            self._macro_panel.from_dict_list(data["macros"])
-
-        if "indicator_thresholds" in data:
-            self._indicator_panel.set_thresholds(data["indicator_thresholds"])
-
-        if "sections" in data:
-            for key, is_collapsed in data["sections"].items():
-                cs = self._sidebar_sections.get(key)
-                if cs is not None and cs.collapsed != is_collapsed:
-                    cs.toggle()
-
-        if "mode" in data:
-            self._set_mode(data["mode"])
-
-        if "signaling_url" in data:
-            self._signaling_url = str(data["signaling_url"])
-
-    def _save_settings(self) -> None:
-        """Persists all UI state to ~/.isodaq_studio/config.json."""
-        try:
-            self._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._CONFIG_PATH.write_text(json.dumps({
-                "port":       self._port_combo.currentText(),
-                "baud":       self._baud_combo.currentText(),
-                "data":       self._data_combo.currentText(),
-                "flow":       self._flow_combo.currentText(),
-                "eol":        self._eol_combo.currentText(),
-                "parser":     self._parser_combo.currentText(),
-                "prefix":     self._prefix_edit.text(),
-                "sep":        self._sep_edit.text(),
-                "timestamp":  self._chk_ts.isChecked(),
-                "hex":        self._chk_hex.isChecked(),
-                "autoscroll": self._chk_auto.isChecked(),
-                "echo":       self._chk_echo.isChecked(),
-                "font_size":  self._terminal_font_size,
-                "scrollback": self._scrollback_limit,
-                "theme":      self._current_theme,
-                "colorizer":  list(self._log_colorizer_enabled),
-                "channels":   self._parser.to_dict_list(),
-                "snippet":    self._parser.get_snippet(),
-                "macros":     self._macro_panel.to_dict_list(),
-                "sections":   {k: v.collapsed for k, v in self._sidebar_sections.items()},
-                "indicator_thresholds": self._indicator_panel.get_thresholds(),
-                "mode":          self._mode,
-                "signaling_url": self._signaling_url,
-            }, indent=2))
-        except Exception:
-            import traceback
-            traceback.print_exc()   # visible in terminal during development
-
-    def _open_preferences(self) -> None:
-        """Opens the Preferences dialog (scrollback limit, signaling URL)."""
-        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QSpinBox
-
-        dlg = QDialog(self)
-        tint_titlebar(dlg)
-        dlg.setWindowTitle("Preferences")
-        dlg.setMinimumWidth(380)
-        dlg.setModal(True)
-
-        form = QFormLayout(dlg)
-        form.setContentsMargins(16, 16, 16, 12)
-        form.setSpacing(10)
-
-        scrollback_spin = QSpinBox()
-        scrollback_spin.setRange(100, 50000)
-        scrollback_spin.setSingleStep(500)
-        scrollback_spin.setValue(self._scrollback_limit)
-        scrollback_spin.setSuffix("  lines")
-
-        lbl_sb = QLabel("Terminal scrollback limit")
-        lbl_sb.setObjectName("dimLabel")
-        form.addRow(lbl_sb, scrollback_spin)
-
-        sig_edit = QLineEdit()
-        sig_edit.setPlaceholderText("https://your-relay.railway.app")
-        sig_edit.setText(self._signaling_url)
-        lbl_sig = QLabel("Signaling server URL")
-        lbl_sig.setObjectName("dimLabel")
-        form.addRow(lbl_sig, sig_edit)
-
-        sig_hint = QLabel(
-            "Deploy relay/server.py to Railway/Render once — all users share the same URL."
-        )
-        sig_hint.setWordWrap(True)
-        sig_hint.setObjectName("dimLabel")
-        form.addRow(sig_hint)
-
-        btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(dlg.accept)
-        btns.rejected.connect(dlg.reject)
-        btns.button(QDialogButtonBox.StandardButton.Ok).setObjectName("save")
-        form.addRow(btns)
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._scrollback_limit = scrollback_spin.value()
-            self._signaling_url = sig_edit.text().strip()
-            self._save_settings()
-
     # ═════════════════════════════════════════════════════════════════════════
     # Close
     # ═════════════════════════════════════════════════════════════════════════
@@ -1386,6 +1229,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._reader.isRunning():
             self._reader.disconnect_port()
-        self._save_settings()
+        self._settings.save()
         self._logger.shutdown()
         event.accept()
