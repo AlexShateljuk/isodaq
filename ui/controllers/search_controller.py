@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 import ui.main_window as _win   # colour globals (runtime access only)
+from core.i18n import tr
 
 
 class SearchController(QObject):
@@ -65,18 +66,18 @@ class SearchController(QObject):
             b.clicked.connect(slot)
             return b
 
-        h.addWidget(self._mw._lbl("Find", dim=True))
+        h.addWidget(self._mw._lbl(tr("Find"), dim=True))
         self._edit = QLineEdit()
         self._edit.setObjectName("searchEdit")
-        self._edit.setPlaceholderText("Search terminal…")
+        self._edit.setPlaceholderText(tr("Search terminal…"))
         self._edit.setMinimumWidth(220)
         self._edit.setMaximumWidth(360)
         self._edit.installEventFilter(self)
         self._edit.textChanged.connect(self._update)
         h.addWidget(self._edit)
 
-        h.addWidget(_nav("▲", "Previous match (Shift+Enter)", lambda: self._step(-1)))
-        h.addWidget(_nav("▼", "Next match (Enter)", lambda: self._step(+1)))
+        h.addWidget(_nav("▲", tr("Previous match (Shift+Enter)"), lambda: self._step(-1)))
+        h.addWidget(_nav("▼", tr("Next match (Enter)"), lambda: self._step(+1)))
 
         self._count = QLabel("0/0")
         self._count.setObjectName("dimLabelMono")
@@ -85,12 +86,12 @@ class SearchController(QObject):
         h.addWidget(self._count)
 
         self._case = QCheckBox("Aa")
-        self._case.setToolTip("Match case")
+        self._case.setToolTip(tr("Match case"))
         self._case.stateChanged.connect(self._update)
         h.addWidget(self._case)
 
         h.addStretch()   # nav group stays left; close button goes to the far right
-        h.addWidget(_nav("✕", "Close (Esc)", self.close))
+        h.addWidget(_nav("✕", tr("Close (Esc)"), self.close))
         bar.hide()
         return bar
 

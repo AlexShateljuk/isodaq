@@ -340,29 +340,29 @@ class MainWindow(QMainWindow):
         self._refresh_btn.setFixedWidth(50)
         self._refresh_btn.clicked.connect(self._serial.refresh_ports)
         r1.addWidget(self._refresh_btn)
-        self._conn_btn = QPushButton("Connect")
+        self._conn_btn = QPushButton(tr("Connect"))
         self._conn_btn.setObjectName("connectBtn")
         self._conn_btn.setFixedWidth(100)
         self._conn_btn.clicked.connect(self._serial.toggle_connection)
         r1.addWidget(self._conn_btn)
-        self._share_btn = QPushButton("Share")
+        self._share_btn = QPushButton(tr("Share"))
         self._share_btn.setObjectName("shareBtn")
         self._share_btn.setFixedHeight(28)
-        self._share_btn.setToolTip("Share this serial session with a colleague")
+        self._share_btn.setToolTip(tr("Share this serial session with a colleague"))
         self._share_btn.clicked.connect(self._session.toggle_share)
         r1.addWidget(self._share_btn)
 
-        self._join_btn = QPushButton("Join")
+        self._join_btn = QPushButton(tr("Join"))
         self._join_btn.setObjectName("joinBtn")
         self._join_btn.setFixedHeight(28)
-        self._join_btn.setToolTip("Connect to a shared session")
+        self._join_btn.setToolTip(tr("Connect to a shared session"))
         self._join_btn.clicked.connect(self._session.open_join_dialog)
         r1.addWidget(self._join_btn)
 
         self._panel_toggle_btn = QPushButton("⊞")
         self._panel_toggle_btn.setObjectName("panelToggleBtn")
         self._panel_toggle_btn.setFixedSize(28, 28)
-        self._panel_toggle_btn.setToolTip("Show/hide right panel  (Ctrl+Shift+R)")
+        self._panel_toggle_btn.setToolTip(tr("Show/hide right panel  (Ctrl+Shift+R)"))
         self._panel_toggle_btn.clicked.connect(self._toggle_right_panel)
         r1.addWidget(self._panel_toggle_btn)
         lay.addLayout(r1)
@@ -376,12 +376,12 @@ class MainWindow(QMainWindow):
         self._baud_combo.setCurrentText("115200")
         self._baud_combo.setFixedWidth(100)
         r2.addWidget(self._baud_combo)
-        r2.addWidget(self._lbl("Data", dim=True))
+        r2.addWidget(self._lbl(tr("Data"), dim=True))
         self._data_combo = QComboBox()
         self._data_combo.addItems(["8N1","8E1","8O1","7N1"])
         self._data_combo.setFixedWidth(100)
         r2.addWidget(self._data_combo)
-        r2.addWidget(self._lbl("Flow", dim=True))
+        r2.addWidget(self._lbl(tr("Flow"), dim=True))
         self._flow_combo = QComboBox()
         self._flow_combo.addItems(["None","RTS/CTS","XON/XOFF"])
         self._flow_combo.setFixedWidth(120)
@@ -393,10 +393,10 @@ class MainWindow(QMainWindow):
         r3 = QHBoxLayout()
         r3.setSpacing(0)
         r3.setContentsMargins(0, 2, 0, 2)
-        self._chk_ts    = QCheckBox("Timestamp"); self._chk_ts.setChecked(True)
+        self._chk_ts    = QCheckBox(tr("Timestamp")); self._chk_ts.setChecked(True)
         self._chk_hex   = QCheckBox("HEX")
-        self._chk_auto  = QCheckBox("Autoscroll"); self._chk_auto.setChecked(True)
-        self._chk_echo  = QCheckBox("Echo");       self._chk_echo.setChecked(True)
+        self._chk_auto  = QCheckBox(tr("Autoscroll")); self._chk_auto.setChecked(True)
+        self._chk_echo  = QCheckBox(tr("Echo"));       self._chk_echo.setChecked(True)
         for chk in (self._chk_ts, self._chk_hex, self._chk_auto, self._chk_echo):
             r3.addWidget(chk)
             r3.addSpacing(20)
@@ -408,7 +408,7 @@ class MainWindow(QMainWindow):
         r3.addSpacing(4)
         font_dec = QPushButton("−")
         font_dec.setFixedSize(22, 22)
-        font_dec.setToolTip("Decrease terminal font size")
+        font_dec.setToolTip(tr("Decrease terminal font size"))
         font_dec.setStyleSheet("font-size:13px;padding:0;")
         font_dec.clicked.connect(lambda: self._change_font_size(-1))
         r3.addWidget(font_dec)
@@ -419,13 +419,13 @@ class MainWindow(QMainWindow):
         r3.addWidget(self._font_size_lbl)
         font_inc = QPushButton("+")
         font_inc.setFixedSize(22, 22)
-        font_inc.setToolTip("Increase terminal font size")
+        font_inc.setToolTip(tr("Increase terminal font size"))
         font_inc.setStyleSheet("font-size:13px;padding:0;")
         font_inc.clicked.connect(lambda: self._change_font_size(+1))
         r3.addWidget(font_inc)
         r3.addSpacing(10)
 
-        clr = QPushButton("Clear")
+        clr = QPushButton(tr("Clear"))
         clr.setFixedHeight(22)
         clr.clicked.connect(lambda: self._terminal.clear())
         r3.addWidget(clr)
@@ -451,43 +451,43 @@ class MainWindow(QMainWindow):
         ps = QHBoxLayout(self._parser_strip_w)
         ps.setContentsMargins(0, 0, 0, 0)
         ps.setSpacing(7)
-        parser_lbl = self._lbl("Parser", mono=True, dim=True)
-        parser_lbl.setToolTip(
+        parser_lbl = self._lbl(tr("Parser"), mono=True, dim=True)
+        parser_lbl.setToolTip(tr(
             "Selects how incoming RX lines are split into named channels\n"
             "for the Graphs / Indicators tabs.\n\n"
             "KEY=VALUE comma  →  DATA:x=1.2,y=3.4,z=0.0\n"
             "JSON             →  {\"x\":1.2,\"y\":3.4}\n"
             "CSV ordered      →  DATA:1.2,3.4,0.0  (mapped by Channel map)\n"
             "Regex custom     →  user-defined capture groups"
-        )
+        ))
         ps.addWidget(parser_lbl)
         self._parser_combo = QComboBox()
         self._parser_combo.setObjectName("parserField")
         self._parser_combo.addItems(["KEY=VALUE comma", "JSON", "CSV ordered", "Regex custom"])
-        self._parser_combo.setToolTip(
+        self._parser_combo.setToolTip(tr(
             "KEY=VALUE comma — expects lines like: DATA:ch1=1.23,ch2=4.56\n"
             "JSON            — expects a JSON object per line: {\"ch1\":1.23}\n"
             "CSV ordered     — values in order matching Channel map: DATA:1.23,4.56\n"
             "Regex custom    — define your own capture groups in the Prefix field"
-        )
+        ))
         ps.addWidget(self._parser_combo)
-        prefix_lbl = self._lbl("Prefix", dim=True)
-        prefix_lbl.setToolTip(
+        prefix_lbl = self._lbl(tr("Prefix"), dim=True)
+        prefix_lbl.setToolTip(tr(
             "Default prefix pre-filled when adding a new channel.\n"
-            "Each channel can have its own prefix — set it in the channel editor.")
+            "Each channel can have its own prefix — set it in the channel editor."))
         ps.addWidget(prefix_lbl)
         self._prefix_edit = QLineEdit("DATA:")
         self._prefix_edit.setObjectName("parserField")
         self._prefix_edit.setFixedWidth(62)
-        self._prefix_edit.setToolTip("Line prefix filter, e.g. \"DATA:\"")
+        self._prefix_edit.setToolTip(tr("Line prefix filter, e.g. \"DATA:\""))
         ps.addWidget(self._prefix_edit)
-        sep_lbl = self._lbl("Sep", dim=True)
-        sep_lbl.setToolTip("Field separator character (CSV / KEY=VALUE mode)")
+        sep_lbl = self._lbl(tr("Sep"), dim=True)
+        sep_lbl.setToolTip(tr("Field separator character (CSV / KEY=VALUE mode)"))
         ps.addWidget(sep_lbl)
         self._sep_edit = QLineEdit(",")
         self._sep_edit.setObjectName("parserField")
         self._sep_edit.setFixedWidth(50)
-        self._sep_edit.setToolTip("Separator, e.g. \",\" or \";\"")
+        self._sep_edit.setToolTip(tr("Separator, e.g. \",\" or \";\""))
         ps.addWidget(self._sep_edit)
         ps.addStretch()
         lay.addWidget(self._parser_strip_w)
@@ -497,7 +497,7 @@ class MainWindow(QMainWindow):
         cr.setSpacing(5)
         self._cmd_edit = QLineEdit()
         self._cmd_edit.setObjectName("cmdEdit")
-        self._cmd_edit.setPlaceholderText("Command… (↑↓ history)")
+        self._cmd_edit.setPlaceholderText(tr("Command… (↑↓ history)"))
         self._cmd_edit.installEventFilter(self._serial)
         self._cmd_edit.returnPressed.connect(self._serial.send_command)
         cr.addWidget(self._cmd_edit)
@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
         self._eol_combo.addItems(["\\r\\n","\\n","\\r","None"])
         self._eol_combo.setFixedWidth(54)
         cr.addWidget(self._eol_combo)
-        self._send_btn = QPushButton("Send")
+        self._send_btn = QPushButton(tr("Send"))
         self._send_btn.setObjectName("sendBtn")
         self._send_btn.setFixedWidth(54)
         self._send_btn.clicked.connect(self._serial.send_command)
@@ -530,23 +530,23 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._tabs)
 
         self._chart_panel = ChartPanel()
-        self._tabs.addTab(self._chart_panel, "Graphs")
+        self._tabs.addTab(self._chart_panel, tr("Graphs"))
 
         self._indicator_panel = IndicatorPanel()
-        self._tabs.addTab(self._indicator_panel, "Indicators")
+        self._tabs.addTab(self._indicator_panel, tr("Indicators"))
 
         self._trigger_events_panel = TriggerEventsPanel()
         self._trigger_events_panel.jump_to_line.connect(self._search.jump_to_line)
-        self._tabs.addTab(self._trigger_events_panel, "Events")
+        self._tabs.addTab(self._trigger_events_panel, tr("Events"))
 
         self._analytics_panel = AnalyticsPanel()
-        self._tabs.addTab(self._analytics_panel, "Analytics")
+        self._tabs.addTab(self._analytics_panel, tr("Analytics"))
 
         # Pop-out button in the tab-bar corner
         _float_btn = QPushButton("⤢")
         _float_btn.setObjectName("floatBtn")
         _float_btn.setFixedSize(26, 22)
-        _float_btn.setToolTip("Open in separate window")
+        _float_btn.setToolTip(tr("Open in separate window"))
         _float_btn.setStyleSheet(
             "border:none;background:transparent;color:#6b7280;"
             "font-size:14px;padding:0;")
@@ -591,47 +591,47 @@ class MainWindow(QMainWindow):
         self._macro_panel = MacroPanel(self._macro_runner, parent=inner)
         _m_file = QPushButton("📁")
         _m_file.setFixedSize(22, 20)
-        _m_file.setToolTip("Send file directly over serial")
+        _m_file.setToolTip(tr("Send file directly over serial"))
         _m_file.setStyleSheet("font-size:11px;padding:0;")
         _m_file.clicked.connect(self._macro_panel._send_file_direct)
-        _m_add = QPushButton("+ Add")
+        _m_add = QPushButton(tr("+ Add"))
         _m_add.setObjectName("add")
         _m_add.setFixedHeight(20)
         _m_add.clicked.connect(self._macro_panel._new_macro)
-        _cs("macros", "Macros", self._macro_panel, extras=[_m_file, _m_add])
+        _cs("macros", tr("Macros"), self._macro_panel, extras=[_m_file, _m_add])
 
         # ── Parsing ───────────────────────────────────────────────────────────
         self._parse_panel = ParsePanel(self._parser, parent=inner)
-        _p_add = QPushButton("+ Add")
+        _p_add = QPushButton(tr("+ Add"))
         _p_add.setObjectName("add")
         _p_add.setFixedHeight(20)
         _p_add.clicked.connect(
             lambda: self._parse_panel.open_editor(
                 default_prefix=self._prefix_edit.text().strip()))
-        _cs("parsing", "Parsing", self._parse_panel, extras=[_p_add], collapsed=True)
+        _cs("parsing", tr("Parsing"), self._parse_panel, extras=[_p_add], collapsed=True)
 
         # ── Data Logger ───────────────────────────────────────────────────────
         self._logger_panel = LoggerPanel(self._logger)
         _l_folder = QPushButton("📂")
         _l_folder.setFixedSize(22, 20)
-        _l_folder.setToolTip("Open log folder")
+        _l_folder.setToolTip(tr("Open log folder"))
         _l_folder.setStyleSheet("font-size:11px;padding:0;")
         _l_folder.clicked.connect(self._logger_panel._open_folder)
-        _cs("logger", "Data Logger", self._logger_panel, extras=[_l_folder])
+        _cs("logger", tr("Data Logger"), self._logger_panel, extras=[_l_folder])
 
         # ── Triggers ──────────────────────────────────────────────────────────
         self._trigger_panel = TriggerPanel(self._engine)
-        _t_reset = QPushButton("Reset")
+        _t_reset = QPushButton(tr("Reset"))
         _t_reset.setFixedHeight(20)
         _t_reset.clicked.connect(self._trigger_panel._clear_hits)
-        _t_add = QPushButton("+ Add")
+        _t_add = QPushButton(tr("+ Add"))
         _t_add.setObjectName("add")
         _t_add.setFixedHeight(20)
         _t_add.clicked.connect(lambda: self._trigger_panel._open_editor())
-        _cs("triggers", "Triggers", self._trigger_panel, extras=[_t_reset, _t_add])
+        _cs("triggers", tr("Triggers"), self._trigger_panel, extras=[_t_reset, _t_add])
 
         # ── Custom command ────────────────────────────────────────────────────
-        _cs("custom", "Custom command", self._build_custom_cmd(), collapsed=True)
+        _cs("custom", tr("Custom command"), self._build_custom_cmd(), collapsed=True)
 
         inner_lay.addStretch()
         scroll.setWidget(inner)
@@ -651,7 +651,7 @@ class MainWindow(QMainWindow):
         self._custom_cmd.setFont(QFont("JetBrains Mono", 11))
         self._custom_cmd.setPlainText("AT+SAMPLE=100")
         lay.addWidget(self._custom_cmd)
-        sb = QPushButton("Send custom")
+        sb = QPushButton(tr("Send custom"))
         sb.setObjectName("add")
         sb.setFixedHeight(26)
         sb.clicked.connect(self._serial.send_custom)
@@ -662,9 +662,9 @@ class MainWindow(QMainWindow):
         ver = QApplication.instance().applicationVersion()
         QMessageBox.about(
             self,
-            "About IsoDAQ Studio",
+            tr("About IsoDAQ Studio"),
             f"<b>IsoDAQ Studio</b> v{ver}<br><br>"
-            "Serial data acquisition and analysis tool.<br><br>"
+            + tr("Serial data acquisition and analysis tool.") + "<br><br>"
             '<a href="https://github.com/AlexShateljuk/isodaq">github.com/AlexShateljuk/isodaq</a>',
         )
 
@@ -676,17 +676,17 @@ class MainWindow(QMainWindow):
         self.setStatusBar(sb)
         self._sb_rx   = QLabel("RX: 0 B")
         self._sb_tx   = QLabel("TX: 0 B")
-        self._sb_rate = QLabel("Rate: —")
-        self._sb_err  = QLabel("Errors: 0")
-        self._sb_sess = QLabel("Session: 00:00:00")
-        self._sb_conn = QLabel("● Disconnected")
+        self._sb_rate = QLabel(tr("Rate: —"))
+        self._sb_err  = QLabel(tr("Errors: 0"))
+        self._sb_sess = QLabel(tr("Session: {t}").format(t="00:00:00"))
+        self._sb_conn = QLabel("● " + tr("Disconnected"))
         self._sb_conn.setStyleSheet("color:#ef4444")
         for w in (self._sb_conn, self._sb_rx, self._sb_tx, self._sb_rate, self._sb_err):
             sb.addWidget(w)
 
         # Remote session quality indicator — hidden until JOIN is active
         self._sb_ping = QLabel("● — ms")
-        self._sb_ping.setToolTip("Remote session latency (round-trip ping)")
+        self._sb_ping.setToolTip(tr("Remote session latency (round-trip ping)"))
         self._sb_ping.hide()
         sb.addPermanentWidget(self._sb_ping)
         sb.addPermanentWidget(self._sb_sess)
@@ -960,7 +960,7 @@ class MainWindow(QMainWindow):
             h = self._session_sec // 3600
             m = (self._session_sec % 3600) // 60
             s = self._session_sec % 60
-            self._sb_sess.setText(f"Session: {h:02d}:{m:02d}:{s:02d}")
+            self._sb_sess.setText(tr("Session: {t}").format(t=f"{h:02d}:{m:02d}:{s:02d}"))
 
     # ═════════════════════════════════════════════════════════════════════════
     # Utilities

@@ -17,6 +17,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSlot
 
 import ui.main_window as _win   # colour globals (runtime access only)
+from core.i18n import tr
 from core.serial_reader import SerialReader
 
 
@@ -64,7 +65,7 @@ class SerialController(QObject):
     @pyqtSlot(str, int)
     def on_connected(self, port: str, baud: int) -> None:
         mw = self._mw
-        mw._conn_btn.setText("Disconnect")
+        mw._conn_btn.setText(tr("Disconnect"))
         mw._conn_btn.setObjectName("disconnectBtn")
         mw._repolish(mw._conn_btn)
         mw._sb_conn.setText(f"● {port} · {baud}")
@@ -74,10 +75,10 @@ class SerialController(QObject):
     @pyqtSlot()
     def on_disconnected(self) -> None:
         mw = self._mw
-        mw._conn_btn.setText("Connect")
+        mw._conn_btn.setText(tr("Connect"))
         mw._conn_btn.setObjectName("connectBtn")
         mw._repolish(mw._conn_btn)
-        mw._sb_conn.setText("● Disconnected")
+        mw._sb_conn.setText("● " + tr("Disconnected"))
         mw._sb_conn.setStyleSheet(f"color:{_win.C_ERR.name()}")
         mw._log("SYS", "Disconnected.", _win.C_SYS)
 

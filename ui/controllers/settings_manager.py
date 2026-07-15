@@ -146,7 +146,7 @@ class SettingsManager(QObject):
 
         dlg = QDialog(mw)
         tint_titlebar(dlg)
-        dlg.setWindowTitle("Preferences")
+        dlg.setWindowTitle(i18n.tr("Preferences"))
         dlg.setMinimumWidth(380)
         dlg.setModal(True)
 
@@ -160,7 +160,7 @@ class SettingsManager(QObject):
         cur = lang_combo.findData(mw._language)
         if cur >= 0:
             lang_combo.setCurrentIndex(cur)
-        lbl_lang = QLabel("Language (restart to apply)")
+        lbl_lang = QLabel(i18n.tr("Language (restart to apply)"))
         lbl_lang.setObjectName("dimLabel")
         form.addRow(lbl_lang, lang_combo)
 
@@ -168,22 +168,22 @@ class SettingsManager(QObject):
         scrollback_spin.setRange(100, 50000)
         scrollback_spin.setSingleStep(500)
         scrollback_spin.setValue(mw._scrollback_limit)
-        scrollback_spin.setSuffix("  lines")
+        scrollback_spin.setSuffix(i18n.tr("  lines"))
 
-        lbl_sb = QLabel("Terminal scrollback limit")
+        lbl_sb = QLabel(i18n.tr("Terminal scrollback limit"))
         lbl_sb.setObjectName("dimLabel")
         form.addRow(lbl_sb, scrollback_spin)
 
         sig_edit = QLineEdit()
         sig_edit.setPlaceholderText("https://your-relay.railway.app")
         sig_edit.setText(mw._signaling_url)
-        lbl_sig = QLabel("Signaling server URL")
+        lbl_sig = QLabel(i18n.tr("Signaling server URL"))
         lbl_sig.setObjectName("dimLabel")
         form.addRow(lbl_sig, sig_edit)
 
-        sig_hint = QLabel(
+        sig_hint = QLabel(i18n.tr(
             "Deploy relay/server.py to Railway/Render once — all users share the same URL."
-        )
+        ))
         sig_hint.setWordWrap(True)
         sig_hint.setObjectName("dimLabel")
         form.addRow(sig_hint)

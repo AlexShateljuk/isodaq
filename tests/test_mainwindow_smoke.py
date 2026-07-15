@@ -59,6 +59,37 @@ def test_mainwindow_constructs(qapp, tmp_path, monkeypatch):
         w.close()
 
 
+def test_mainwindow_ukrainian_locale(qapp, tmp_path, monkeypatch):
+    """With the uk catalog loaded, wrapped UI strings render in Ukrainian.
+
+    Guards the i18n coverage: if a widget's text is un-wrapped (or a uk.json key
+    drifts from the source string), these assertions fail.
+    """
+    from core import i18n
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+
+    prev = i18n.current_language()
+    assert i18n.set_language("uk") == "uk"
+    try:
+        w = MainWindow()
+        try:
+            # Buttons, tabs and the status bar resolve through the uk catalog.
+            assert w._conn_btn.text() == i18n.tr("Connect") == "Підключити"
+            assert w._send_btn.text() == "Надіслати"
+            assert w._tabs.tabText(0) == "Графіки"
+            assert "Відключено" in w._sb_conn.text()
+            # menuBar first menu is "File" → "Файл"
+            assert w.menuBar().actions()[0].text() == "Файл"
+        finally:
+            w.close()
+    finally:
+        i18n.set_language(prev)   # don't leak locale into other tests
+
+
 def test_settings_roundtrip(qapp, tmp_path, monkeypatch):
     """SettingsManager.save() then a fresh MainWindow.load() restores UI state."""
     from ui.controllers.update_manager import UpdateManager

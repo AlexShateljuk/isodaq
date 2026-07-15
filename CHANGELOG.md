@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **i18n coverage expanded** — the whole main window is now translatable, not
+  just the menu bar: toolbar buttons, terminal controls, parser strip, tabs,
+  sidebar sections, status bar, the Share/Join dialogs, Preferences, the update
+  banner, and the trigger-load security dialog all route through `tr()`. The
+  Ukrainian catalog (`translations/uk.json`) grew from 17 to 120 entries. Added
+  a uk-locale smoke test that builds the window and asserts translated widgets.
+
 ## [0.2.2] — 2026-07-13
 
 This is primarily an open-source-readiness release: licensing, security

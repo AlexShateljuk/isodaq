@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.i18n import tr
 from core.updater import UpdateChecker
 
 
@@ -52,7 +53,7 @@ class UpdateManager(QObject):
         lay.addWidget(self._update_lbl)
         lay.addStretch()
 
-        self._update_dl_btn = QPushButton("Download")
+        self._update_dl_btn = QPushButton(tr("Download"))
         self._update_dl_btn.setObjectName("iconBtn")
         self._update_dl_btn.clicked.connect(self.open_release_page)
         lay.addWidget(self._update_dl_btn)
@@ -98,7 +99,8 @@ class UpdateManager(QObject):
 
     def _on_manual_check_done(self, checker: UpdateChecker) -> None:
         if not self._release_url:
-            QMessageBox.information(self._mw, "No updates", "You are on the latest version.")
+            QMessageBox.information(self._mw, tr("No updates"),
+                                    tr("You are on the latest version."))
 
     @pyqtSlot(str, str)
     def _on_update_available(self, version: str, url: str) -> None:
@@ -107,7 +109,8 @@ class UpdateManager(QObject):
         current = QApplication.instance().applicationVersion()
         if self._update_lbl:
             self._update_lbl.setText(
-                f"IsoDAQ Studio v{version} is available — you have v{current}")
+                tr("IsoDAQ Studio v{version} is available — you have v{current}")
+                .format(version=version, current=current))
         if self._banner:
             self._banner.show()
         self._notify(version)
@@ -117,8 +120,8 @@ class UpdateManager(QObject):
             return
         self._tray.show()
         self._tray.showMessage(
-            "IsoDAQ Studio update available",
-            f"Version {version} is ready to download. Click to open.",
+            tr("IsoDAQ Studio update available"),
+            tr("Version {version} is ready to download. Click to open.").format(version=version),
             QSystemTrayIcon.MessageIcon.Information,
             6000,  # ms the notification stays visible
         )

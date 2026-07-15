@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 
 import core.signaling as signaling
 import ui.main_window as _win   # for theme-updated colour globals (runtime access only)
+from core.i18n import tr
 from core.session_client import SessionClient
 from core.session_server import SessionServer
 from core.stun_helper import get_local_ip, get_public_ip
@@ -85,7 +86,7 @@ class SessionController(QObject):
         self._server.viewer_count_changed.connect(self._on_viewer_count)
         self._server.start()
 
-        mw._share_btn.setText("Stop")
+        mw._share_btn.setText(tr("Stop"))
         mw._share_btn.setObjectName("stopShareBtn")
         mw._repolish(mw._share_btn)
         mw._log("SYS", f"[SHARE] Session server started on port {port}", _win.C_SYS)
@@ -95,7 +96,7 @@ class SessionController(QObject):
 
         # Build dialog immediately (shows LAN address right away)
         dlg = QDialog(mw)
-        dlg.setWindowTitle("Session sharing active")
+        dlg.setWindowTitle(tr("Session sharing active"))
         dlg.setMinimumWidth(400)
         self._share_dialog = dlg
 
@@ -106,22 +107,22 @@ class SessionController(QObject):
         lan_lbl = QLabel(lan_addr)
         lan_lbl.setObjectName("stat")
         lan_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        form.addRow("LAN address:", lan_lbl)
+        form.addRow(tr("LAN address:"), lan_lbl)
 
-        self._share_code_lbl = QLabel("Detecting…")
+        self._share_code_lbl = QLabel(tr("Detecting…"))
         self._share_code_lbl.setObjectName("stat")
         self._share_code_lbl.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-        form.addRow("Session code:", self._share_code_lbl)
+        form.addRow(tr("Session code:"), self._share_code_lbl)
 
-        self._share_viewers_lbl = QLabel("0 connected")
+        self._share_viewers_lbl = QLabel(tr("{n} connected").format(n=0))
         self._share_viewers_lbl.setObjectName("stat")
-        form.addRow("Viewers:", self._share_viewers_lbl)
+        form.addRow(tr("Viewers:"), self._share_viewers_lbl)
 
-        note = QLabel(
+        note = QLabel(tr(
             "Your colleague opens IsoDAQ Studio → clicks Join → enters the code above.\n"
             "The code is valid for 1 hour."
-        )
+        ))
         note.setWordWrap(True)
         note.setObjectName("dimLabel")
         form.addRow(note)
@@ -131,15 +132,15 @@ class SessionController(QObject):
         sep.setObjectName("dimLabel")
         form.addRow(sep)
 
-        lan_note = QLabel("Same network? Share the LAN address directly.")
+        lan_note = QLabel(tr("Same network? Share the LAN address directly."))
         lan_note.setObjectName("dimLabel")
         form.addRow(lan_note)
 
-        fw_note = QLabel(
+        fw_note = QLabel(tr(
             "Internet sharing requires port 9876 to be reachable from outside.\n"
             "If the viewer gets 'connection refused', your router is blocking it —\n"
             "forward port 9876 → this machine, or use a VPN."
-        )
+        ))
         fw_note.setWordWrap(True)
         fw_note.setObjectName("dimLabel")
         form.addRow(fw_note)
@@ -174,12 +175,12 @@ class SessionController(QObject):
                     "[SHARE] Internet sharing unavailable — no signaling server URL.\n"
                     "  → Edit → Preferences → set Signaling server URL", _win.C_DIM)
             if self._share_code_lbl:
-                self._share_code_lbl.setText("Not available (no server URL)")
+                self._share_code_lbl.setText(tr("Not available (no server URL)"))
             return
 
         if not pub_ip:
             if self._share_code_lbl:
-                self._share_code_lbl.setText("Not available (STUN failed)")
+                self._share_code_lbl.setText(tr("Not available (STUN failed)"))
             return
 
         # ── 3. Register with signaling server ──────────────────────────────
@@ -204,15 +205,15 @@ class SessionController(QObject):
         except urllib.error.HTTPError as e:
             mw._log("SYS", f"[SHARE] Signaling server error HTTP {e.code}: {e.reason}", _win.C_DIM)
             if self._share_code_lbl:
-                self._share_code_lbl.setText(f"Not available (HTTP {e.code})")
+                self._share_code_lbl.setText(tr("Not available (HTTP {code})").format(code=e.code))
         except Exception as e:
             mw._log("SYS", f"[SHARE] Cannot reach signaling server: {e}", _win.C_DIM)
             if self._share_code_lbl:
-                self._share_code_lbl.setText("Not available (server unreachable)")
+                self._share_code_lbl.setText(tr("Not available (server unreachable)"))
 
     def _on_viewer_count(self, n: int) -> None:
         """Relay viewer count changed — update the Share dialog and log it."""
-        label = f"{n} connected" if n != 1 else "1 connected"
+        label = tr("{n} connected").format(n=n)
         if self._share_viewers_lbl:
             try:
                 self._share_viewers_lbl.setText(label)
@@ -227,7 +228,7 @@ class SessionController(QObject):
             self._server = None
         self._share_session_code = ""
         self._share_viewers_lbl  = None
-        mw._share_btn.setText("Share")
+        mw._share_btn.setText(tr("Share"))
         mw._share_btn.setObjectName("shareBtn")
         mw._repolish(mw._share_btn)
         mw._log("SYS", "[SHARE] Session stopped", _win.C_DIM)
@@ -243,14 +244,14 @@ class SessionController(QObject):
             self._client = None
             client.stop()
             mw._sb_ping.hide()
-            mw._join_btn.setText("Join")
+            mw._join_btn.setText(tr("Join"))
             mw._join_btn.setObjectName("joinBtn")
             mw._repolish(mw._join_btn)
             mw._log("SYS", "[JOIN] Disconnected", _win.C_DIM)
             return
 
         dlg = QDialog(mw)
-        dlg.setWindowTitle("Join a session")
+        dlg.setWindowTitle(tr("Join a session"))
         dlg.setMinimumWidth(360)
 
         outer = QVBoxLayout(dlg)
@@ -266,17 +267,17 @@ class SessionController(QObject):
         code_form.setContentsMargins(12, 12, 12, 0)
         code_form.setSpacing(10)
 
-        code_note = QLabel("Enter the 6-digit code shown on the host's Share dialog.")
+        code_note = QLabel(tr("Enter the 6-digit code shown on the host's Share dialog."))
         code_note.setWordWrap(True)
         code_note.setObjectName("dimLabel")
         code_form.addRow(code_note)
 
         code_edit = QLineEdit()
-        code_edit.setPlaceholderText("e.g.  481 203")
+        code_edit.setPlaceholderText(tr("e.g.  481 203"))
         code_edit.setMaxLength(7)
-        code_form.addRow("Code:", code_edit)
+        code_form.addRow(tr("Code:"), code_edit)
 
-        tabs.addTab(code_w, "By code")
+        tabs.addTab(code_w, tr("By code"))
 
         # ── Tab 2: Join by address (LAN) ───────────────────────────────────
         addr_w = QWidget()
@@ -284,16 +285,16 @@ class SessionController(QObject):
         addr_form.setContentsMargins(12, 12, 12, 0)
         addr_form.setSpacing(10)
 
-        addr_note = QLabel("Enter the LAN address shown on the host's Share dialog.")
+        addr_note = QLabel(tr("Enter the LAN address shown on the host's Share dialog."))
         addr_note.setWordWrap(True)
         addr_note.setObjectName("dimLabel")
         addr_form.addRow(addr_note)
 
         addr_edit = QLineEdit()
         addr_edit.setPlaceholderText("192.168.x.x:9876")
-        addr_form.addRow("Address:", addr_edit)
+        addr_form.addRow(tr("Address:"), addr_edit)
 
-        tabs.addTab(addr_w, "By address (LAN)")
+        tabs.addTab(addr_w, tr("By address (LAN)"))
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -312,17 +313,17 @@ class SessionController(QObject):
                 return
             base = signaling.normalize(mw._signaling_url)
             if not base:
-                QMessageBox.warning(mw, "No signaling server",
-                                    "A signaling server URL is required to join by code.\n"
-                                    "Go to Edit → Preferences and set the Signaling server URL,\n"
-                                    "or ask the host for the LAN address and use By address.")
+                QMessageBox.warning(mw, tr("No signaling server"),
+                                    tr("A signaling server URL is required to join by code.\n"
+                                       "Go to Edit → Preferences and set the Signaling server URL,\n"
+                                       "or ask the host for the LAN address and use By address."))
                 return
             # Validate the code exists before connecting to relay
             result = signaling.lookup(raw_code, mw._signaling_url)
             if not result:
-                QMessageBox.warning(mw, "Code not found",
-                                    "Session not found or expired.\n"
-                                    "Ask the host to check their session code.")
+                QMessageBox.warning(mw, tr("Code not found"),
+                                    tr("Session not found or expired.\n"
+                                       "Ask the host to check their session code."))
                 return
             clean = raw_code.strip().replace(" ", "").replace("-", "")
             relay_url = f"{base}/tunnel/{clean}/poll"
@@ -337,8 +338,8 @@ class SessionController(QObject):
                 host, port_str = raw.rsplit(":", 1)
                 port = int(port_str)
             except ValueError:
-                QMessageBox.warning(mw, "Invalid address",
-                                    "Use the format  host:port  e.g. 192.168.1.5:9876")
+                QMessageBox.warning(mw, tr("Invalid address"),
+                                    tr("Use the format  host:port  e.g. 192.168.1.5:9876"))
                 return
             self._connect_to_session(host, port)
 
@@ -368,7 +369,7 @@ class SessionController(QObject):
         client.start()
         self._client = client
         mw._sb_ping.show()
-        mw._join_btn.setText("Leave")
+        mw._join_btn.setText(tr("Leave"))
         mw._join_btn.setObjectName("stopShareBtn")
         mw._repolish(mw._join_btn)
 
@@ -385,7 +386,7 @@ class SessionController(QObject):
         self._client = None
         mw._log("SYS", "[JOIN] Session ended", _win.C_DIM)
         mw._sb_ping.hide()
-        mw._join_btn.setText("Join")
+        mw._join_btn.setText(tr("Join"))
         mw._join_btn.setObjectName("joinBtn")
         mw._repolish(mw._join_btn)
 

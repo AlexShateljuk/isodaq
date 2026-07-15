@@ -22,6 +22,7 @@ from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import QApplication
 
 import ui.main_window as _win   # colour globals (runtime access only)
+from core.i18n import tr
 from core.triggers import Trigger, TriggerEngine
 
 
@@ -98,20 +99,21 @@ class TriggerController(QObject):
 
     def save_triggers(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
-        path, _ = QFileDialog.getSaveFileName(self._mw, "Save triggers", "", "JSON (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self._mw, tr("Save triggers"), "", "JSON (*.json)")
         if path:
             Path(path).write_text(json.dumps(self._mw._engine.to_dict_list(), indent=2))
 
     def load_triggers(self) -> None:
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         mw = self._mw
-        path, _ = QFileDialog.getOpenFileName(mw, "Load triggers", "", "JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(mw, tr("Load triggers"), "", "JSON (*.json)")
         if not path:
             return
         try:
             data = json.loads(Path(path).read_text())
         except Exception as e:
-            QMessageBox.warning(mw, "Load failed", f"Could not read triggers file:\n{e}")
+            QMessageBox.warning(mw, tr("Load failed"),
+                                tr("Could not read triggers file:\n{err}").format(err=e))
             return
 
         # Security gate: [python] triggers execute arbitrary code on this machine.
@@ -120,13 +122,14 @@ class TriggerController(QObject):
         if py_count:
             box = QMessageBox(mw)
             box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle("This file runs custom code")
+            box.setWindowTitle(tr("This file runs custom code"))
             box.setText(
-                f"This trigger file contains {py_count} custom <b>Python</b> rule(s).\n"
-                "Python triggers run arbitrary code on your computer when a serial "
-                "line matches.\n\nOnly enable them if you trust the source of this file.")
-            b_enable  = box.addButton("Load && enable", QMessageBox.ButtonRole.AcceptRole)
-            b_disable = box.addButton("Load disabled",  QMessageBox.ButtonRole.DestructiveRole)
+                tr("This trigger file contains {n} custom <b>Python</b> rule(s).\n"
+                   "Python triggers run arbitrary code on your computer when a serial "
+                   "line matches.\n\nOnly enable them if you trust the source of this file.")
+                .format(n=py_count))
+            b_enable  = box.addButton(tr("Load && enable"), QMessageBox.ButtonRole.AcceptRole)
+            b_disable = box.addButton(tr("Load disabled"),  QMessageBox.ButtonRole.DestructiveRole)
             b_cancel  = box.addButton(QMessageBox.StandardButton.Cancel)
             box.setDefaultButton(b_disable)
             box.exec()
