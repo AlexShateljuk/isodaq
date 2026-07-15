@@ -52,6 +52,10 @@ OSS6_REFACTOR.md
 *.jpeg
 # …but bundled UI assets must always be tracked (icons, arrow SVGs, etc.)
 !ui/resources/**
+# …and the documentation screenshots referenced by README + wiki
+!docs/images/**
 
-# Dev tools / test scripts
-tools/
+# Dev tools / test scripts (personal dev captures — not for version control)
+tools/*
+# …except the doc-screenshot generator referenced by README/CONTRIBUTING
+!tools/gen_screenshots.py
