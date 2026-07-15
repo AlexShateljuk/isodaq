@@ -47,3 +47,12 @@ cp wiki/*.md /tmp/isodaq-wiki/ && cd /tmp/isodaq-wiki && git commit -am "docs: u
 The README links to wiki pages as
 `https://github.com/AlexShateljuk/isodaq/wiki/<Page-Name>`. If you rename a
 `wiki/*.md` file, update the matching link in `README.md`.
+
+## Troubleshooting
+
+**`git clone …/isodaq.wiki.git` fails with `remote: Repository not found`.**
+The wiki git repository does **not** exist until you create the first page
+through the web UI — there is no API to bootstrap it. This is expected, not an
+auth problem. Fix: open the repo's **Wiki** tab → **Create the first page** →
+type anything → **Save Page**, then run the *First-time publish* steps above.
+(If there is no Wiki tab at all, enable it in **Settings → Features → Wikis**.)
