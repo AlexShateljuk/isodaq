@@ -133,6 +133,26 @@ class ParsePanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # ── Default prefix for new channels ───────────────────────────────────
+        # (Formerly the left-panel "parser strip".) Only a convenience: it
+        # pre-fills the Prefix field when you click "+ Add". The real per-channel
+        # parsing config is the editor below; each channel can override its prefix.
+        _pref_tip = ("Only RX lines containing this string are parsed.\n"
+                     "Pre-fills the Prefix field when you add a channel;\n"
+                     "each channel can still override it. Empty = match all lines.")
+        pref_row = QWidget()
+        pr = QHBoxLayout(pref_row)
+        pr.setContentsMargins(8, 6, 8, 2)
+        pr.setSpacing(6)
+        pref_lbl = _lbl("New-channel prefix")
+        pref_lbl.setToolTip(_pref_tip)
+        pr.addWidget(pref_lbl)
+        self._default_prefix = QLineEdit("DATA:")
+        self._default_prefix.setObjectName("parserField")
+        self._default_prefix.setToolTip(_pref_tip)
+        pr.addWidget(self._default_prefix)
+        root.addWidget(pref_row)
+
         # ── Channel list ──────────────────────────────────────────────────────
         self._list_w = QWidget()
         self._list_lay = QVBoxLayout(self._list_w)
@@ -405,7 +425,7 @@ class ParsePanel(QWidget):
         else:
             self._key_e.clear()
             self._name_e.clear()
-            self._prefix_e.setText(default_prefix)
+            self._prefix_e.setText(default_prefix or self._default_prefix.text().strip())
             self._unit_e.clear()
             self._scale_e.setText("1.0")
             self._offset_e.setText("0.0")
@@ -507,6 +527,14 @@ class ParsePanel(QWidget):
         for ch in self._parser.get_channels():
             self.channel_chart_req.emit(ch.name, ch.show_chart)
             self.channel_indicator_req.emit(ch.name, ch.show_indicator)
+
+    # ── Default prefix (persisted) ─────────────────────────────────────────────
+
+    def default_prefix(self) -> str:
+        return self._default_prefix.text().strip()
+
+    def set_default_prefix(self, prefix: str) -> None:
+        self._default_prefix.setText(prefix)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

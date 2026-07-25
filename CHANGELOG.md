@@ -7,13 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Illustrated documentation** — the README now embeds generated screenshots
+  next to each major feature, and a full **[wiki](https://github.com/AlexShateljuk/isodaq/wiki)**
+  (per-feature pages) was added, authored under `wiki/`. Screenshots are
+  reproducible via `tools/gen_screenshots.py`, which drives the real window with
+  synthetic data and saves `widget.grab()` PNGs into `docs/images/`.
+
 ### Changed
+- **Right panel collapsed by default** — a fresh window now opens focused on the
+  terminal; reveal the data side (tabs + sidebar) with the `⊞` button or
+  `Ctrl+Shift+R`. The panel's open/closed state is now persisted.
+- **Parsing consolidated into the sidebar** — removed the left-panel "parser
+  strip"; its parser-type and separator controls weren't wired to the parsing
+  engine (which auto-detects JSON vs KEY=VALUE per channel). The default
+  **New-channel prefix** now lives at the top of the **Parsing** section, so all
+  parsing configuration is in one place.
 - **i18n coverage expanded** — the whole main window is now translatable, not
-  just the menu bar: toolbar buttons, terminal controls, parser strip, tabs,
-  sidebar sections, status bar, the Share/Join dialogs, Preferences, the update
-  banner, and the trigger-load security dialog all route through `tr()`. The
-  Ukrainian catalog (`translations/uk.json`) grew from 17 to 120 entries. Added
-  a uk-locale smoke test that builds the window and asserts translated widgets.
+  just the menu bar: toolbar buttons, terminal controls, tabs, sidebar sections,
+  status bar, the Share/Join dialogs, Preferences, the update banner, and the
+  trigger-load security dialog all route through `tr()`. The Ukrainian catalog
+  (`translations/uk.json`) grew from 17 to 120 entries. Added a uk-locale smoke
+  test that builds the window and asserts translated widgets.
 
 ## [0.2.2] — 2026-07-13
 

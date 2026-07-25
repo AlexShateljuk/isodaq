@@ -2,19 +2,19 @@
 
 IsoDAQ Studio is a single window split into a **terminal side** (left) and a
 **data side** (right), with a menu bar on top and a status bar at the bottom.
+The data side is **collapsed by default** — click **⊞** in the port bar (or press
+`Ctrl+Shift+R`) to reveal it; the choice is remembered next launch.
 
-![Interface anatomy](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/ui-map.png)
+![IsoDAQ Studio interface](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/main-window-dark.png)
 
-| # | Region | Purpose | More |
-|---|--------|---------|------|
-| 1 | **Port bar** | Port / baud / framing, Connect, Share & Join, right-panel toggle | [Serial Connection](Serial-Connection) |
-| 2 | **Terminal** | Timestamped, colour-coded RX/TX output | [Terminal](Terminal) |
-| 3 | **Find bar** | In-terminal search (`Ctrl+F`) | [Terminal](Terminal#search) |
-| 4 | **Parser strip** | Default parser type / prefix / separator for new channels | [Data Parser](Data-Parser) |
-| 5 | **Command input** | Send line + EOL selector, `↑ ↓` history | [Terminal](Terminal#sending-commands) |
-| 6 | **Tabs** | Graphs · Indicators · Events · Analytics | [Live Views](Live-Views) |
-| 7 | **Chart area** | Plots / value cards / event log for the active tab | [Live Views](Live-Views) |
-| 8 | **Sidebar** | Macros · Parsing · Data Logger · Triggers · Custom command | below |
+| Region | Purpose | More |
+|--------|---------|------|
+| **Port bar** (top-left) | Port / baud / framing, Connect, Share & Join, right-panel toggle | [Serial Connection](Serial-Connection) |
+| **Terminal** (left) | Timestamped, colour-coded RX/TX output; `Ctrl+F` searches | [Terminal](Terminal) |
+| **Command input** (bottom-left) | Send line + EOL selector, `↑ ↓` history | [Terminal](Terminal#sending-commands) |
+| **Tabs** (right) | Graphs · Indicators · Events · Analytics | [Live Views](Live-Views) |
+| **Chart area** (right) | Plots / value cards / event log for the active tab | [Live Views](Live-Views) |
+| **Sidebar** (far right) | Macros · Parsing · Data Logger · Triggers · Custom command | below |
 
 ## The menu bar
 
@@ -57,7 +57,7 @@ while joined to a shared session), and the **Session** timer.
 | Mode | What's visible |
 |------|----------------|
 | **Advanced** (default) | Full layout — port bar, terminal, right panel, sidebar |
-| **Simple** | Left panel only — port settings, terminal, command input; parser strip hidden |
+| **Simple** | Left panel only — port settings, terminal, command input |
 
 You can also hide just the right panel with **`⊞`** / `Ctrl+Shift+R`.
 The mode is persisted across sessions. → [Themes, Modes & Settings](Themes-Modes-and-Settings)

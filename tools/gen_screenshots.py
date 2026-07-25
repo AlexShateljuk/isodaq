@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 import ui.main_window as mw_mod  # noqa: E402
 mw_mod.MainWindow._CONFIG_PATH = Path(tempfile.gettempdir()) / "isodaq_shots_config.json"
 
-from PyQt6.QtGui import QIcon  # noqa: E402
+from PyQt6.QtGui import QIcon, QImage  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from core import i18n  # noqa: E402
@@ -71,6 +71,38 @@ def grab(widget, name: str) -> None:
     pm = widget.grab()
     pm.save(str(OUT / name))
     print(f"  ✓ {name}  ({pm.width()}×{pm.height()})")
+
+
+def trim_bottom(name: str, margin: int = 40) -> None:
+    """Crop empty background off the bottom of a tall, sparse panel grab."""
+    p = OUT / name
+    img = QImage(str(p))
+    w, h = img.width(), img.height()
+    bg = img.pixelColor(2, 2)
+    last = 0
+    for y in range(h - 1, -1, -1):
+        for x in range(0, w, 3):
+            c = img.pixelColor(x, y)
+            if (abs(c.red() - bg.red()) + abs(c.green() - bg.green())
+                    + abs(c.blue() - bg.blue())) > 30:
+                last = y
+                break
+        if last:
+            break
+    new_h = min(h, last + margin)
+    img.copy(0, 0, w, new_h).save(str(p))
+    print(f"    ↳ trimmed {name} → {w}×{new_h}")
+
+
+def crop_top(name: str, px: int) -> None:
+    """Keep the top *px* pixels — for tables whose faint alternating-row
+    backgrounds defeat auto-trim. Value is in actual (device) pixels; on a
+    Retina display a grab is 2× the logical size."""
+    p = OUT / name
+    img = QImage(str(p))
+    h = min(img.height(), px)
+    img.copy(0, 0, img.width(), h).save(str(p))
+    print(f"    ↳ cropped {name} → {img.width()}×{h}")
 
 
 # ── Data setup ────────────────────────────────────────────────────────────────
@@ -177,13 +209,21 @@ def expand(win: MainWindow, key: str) -> None:
 
 
 def shot_tabs(win: MainWindow, app: QApplication) -> None:
-    for panel, fname in ((win._chart_panel, "tab-graphs.png"),
-                         (win._indicator_panel, "tab-indicators.png"),
-                         (win._trigger_events_panel, "tab-events.png"),
-                         (win._analytics_panel, "tab-analytics.png")):
+    # crop: "trim" = auto-trim empty bottom, int = keep top N logical px, None = full
+    specs = [
+        (win._chart_panel, "tab-graphs.png", None),
+        (win._indicator_panel, "tab-indicators.png", "trim"),
+        (win._trigger_events_panel, "tab-events.png", 330),
+        (win._analytics_panel, "tab-analytics.png", None),
+    ]
+    for panel, fname, crop in specs:
         win._tabs.setCurrentWidget(panel)
         pump(app, 200)
         grab(panel, fname)
+        if crop == "trim":
+            trim_bottom(fname)
+        elif isinstance(crop, int):
+            crop_top(fname, crop)
 
 
 def shot_sidebar(win: MainWindow, app: QApplication) -> None:
@@ -246,9 +286,17 @@ def main() -> None:
         app.setWindowIcon(QIcon(str(ICON)))
     i18n.init("en")
 
+    # Start from clean defaults every run — the on-exit save() writes this temp
+    # file, and a stale copy would otherwise leak expanded sections / open panels
+    # from a previous run into the next set of screenshots.
+    MainWindow._CONFIG_PATH.unlink(missing_ok=True)
+
     win = MainWindow()
     win.resize(1300, 800)
     win.show()
+    # The right panel is collapsed by default now — open it for the screenshots.
+    win._right_panel_visible = True
+    win._apply_right_panel()
     pump(app, 500)
 
     setup_channels(win)
@@ -273,13 +321,6 @@ def main() -> None:
     set_connected(win)
     pump(app, 400)
     grab(win, "main-window-light.png")
-
-    # Reuse the annotated UI map that already ships in the repo root.
-    src_map = ROOT / "ui_map.png"
-    if src_map.exists():
-        import shutil
-        shutil.copyfile(src_map, OUT / "ui-map.png")
-        print(f"  ✓ ui-map.png  (copied from {src_map.name})")
 
     print(f"\nDone. {len(list(OUT.glob('*.png')))} PNGs in {OUT}")
     win.close()

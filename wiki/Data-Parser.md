@@ -59,15 +59,17 @@ Applied as `value × scale + offset`. Common uses:
 - `× 0.1` for a fixed-point sensor
 - `+` for a zero-offset calibration
 
-## Parser modes (the parser strip)
+## Line formats & the default prefix
 
-The strip above the command box sets defaults for **new** channels (each channel
-can still override its own prefix). The mode drop-down covers:
+There is **no "mode" to pick** — the extractor auto-detects the line shape per
+channel: it reads a **JSON** object if the line contains one
+(`{"ch1":1.23}`, dot-paths supported), otherwise a **KEY=VALUE** / `key: value`
+token (`DATA: ch1=1.23,ch2=4.56`). See the value-formats table above. For anything
+those can't express, use a [custom Python snippet](#custom-python-snippet).
 
-- **KEY=VALUE comma** — `DATA: ch1=1.23,ch2=4.56`
-- **JSON** — one JSON object per line: `{"ch1":1.23}` (dot-paths supported)
-- **CSV ordered** — values in order mapped to your channel list: `DATA:1.23,4.56`
-- **Regex custom** — your own capture groups
+At the top of the **Parsing** section, **New-channel prefix** sets the prefix
+pre-filled when you click **+ Add** — a convenience only; each channel keeps its
+own prefix in the editor.
 
 ## Custom Python snippet
 

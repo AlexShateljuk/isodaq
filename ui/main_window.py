@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         self._rx_bytes = 0
         self._tx_bytes = 0
         self._session_sec = 0
-        self._right_panel_visible: bool = True
+        self._right_panel_visible: bool = False   # collapsed by default
         self._user_scrolling: bool = False
         self._mode: str = "advanced"
         self._signaling_url: str = signaling._DEFAULT_URL
@@ -251,6 +251,10 @@ class MainWindow(QMainWindow):
         self._main_splitter.setSizes([702, 598])
 
         self._build_statusbar()
+
+        # Right panel starts collapsed by default (Advanced mode); a persisted
+        # preference is restored later in SettingsManager.load().
+        self._apply_right_panel()
 
     # ── Menu ──────────────────────────────────────────────────────────────────
 
@@ -434,63 +438,18 @@ class MainWindow(QMainWindow):
 
     def _build_input_bar(self) -> QWidget:
         """
-        Bottom bar of the left panel.
-        Row 1 — parser type selector + Prefix filter + separator field.
-        Row 2 — command line edit + EOL selector + Send button.
-        Row 3 — quick-command shortcut buttons (AT commands).
+        Bottom bar of the left panel: the command line.
+        Command line edit + EOL selector + Send button.
+
+        Parsing configuration used to live here as a "parser strip"; it now lives
+        entirely in the right-hand **Parsing** sidebar section (channel list +
+        editor + default prefix), so all parsing is in one place.
         """
         bar = QWidget()
         bar.setObjectName("inputBar")
         lay = QVBoxLayout(bar)
         lay.setContentsMargins(10, 7, 10, 7)
         lay.setSpacing(5)
-
-        # Parser strip (hidden in Simple mode)
-        self._parser_strip_w = QWidget()
-        self._parser_strip_w.setObjectName("parserStrip")
-        ps = QHBoxLayout(self._parser_strip_w)
-        ps.setContentsMargins(0, 0, 0, 0)
-        ps.setSpacing(7)
-        parser_lbl = self._lbl(tr("Parser"), mono=True, dim=True)
-        parser_lbl.setToolTip(tr(
-            "Selects how incoming RX lines are split into named channels\n"
-            "for the Graphs / Indicators tabs.\n\n"
-            "KEY=VALUE comma  →  DATA:x=1.2,y=3.4,z=0.0\n"
-            "JSON             →  {\"x\":1.2,\"y\":3.4}\n"
-            "CSV ordered      →  DATA:1.2,3.4,0.0  (mapped by Channel map)\n"
-            "Regex custom     →  user-defined capture groups"
-        ))
-        ps.addWidget(parser_lbl)
-        self._parser_combo = QComboBox()
-        self._parser_combo.setObjectName("parserField")
-        self._parser_combo.addItems(["KEY=VALUE comma", "JSON", "CSV ordered", "Regex custom"])
-        self._parser_combo.setToolTip(tr(
-            "KEY=VALUE comma — expects lines like: DATA:ch1=1.23,ch2=4.56\n"
-            "JSON            — expects a JSON object per line: {\"ch1\":1.23}\n"
-            "CSV ordered     — values in order matching Channel map: DATA:1.23,4.56\n"
-            "Regex custom    — define your own capture groups in the Prefix field"
-        ))
-        ps.addWidget(self._parser_combo)
-        prefix_lbl = self._lbl(tr("Prefix"), dim=True)
-        prefix_lbl.setToolTip(tr(
-            "Default prefix pre-filled when adding a new channel.\n"
-            "Each channel can have its own prefix — set it in the channel editor."))
-        ps.addWidget(prefix_lbl)
-        self._prefix_edit = QLineEdit("DATA:")
-        self._prefix_edit.setObjectName("parserField")
-        self._prefix_edit.setFixedWidth(62)
-        self._prefix_edit.setToolTip(tr("Line prefix filter, e.g. \"DATA:\""))
-        ps.addWidget(self._prefix_edit)
-        sep_lbl = self._lbl(tr("Sep"), dim=True)
-        sep_lbl.setToolTip(tr("Field separator character (CSV / KEY=VALUE mode)"))
-        ps.addWidget(sep_lbl)
-        self._sep_edit = QLineEdit(",")
-        self._sep_edit.setObjectName("parserField")
-        self._sep_edit.setFixedWidth(50)
-        self._sep_edit.setToolTip(tr("Separator, e.g. \",\" or \";\""))
-        ps.addWidget(self._sep_edit)
-        ps.addStretch()
-        lay.addWidget(self._parser_strip_w)
 
         # Command row
         cr = QHBoxLayout()
@@ -605,9 +564,7 @@ class MainWindow(QMainWindow):
         _p_add = QPushButton(tr("+ Add"))
         _p_add.setObjectName("add")
         _p_add.setFixedHeight(20)
-        _p_add.clicked.connect(
-            lambda: self._parse_panel.open_editor(
-                default_prefix=self._prefix_edit.text().strip()))
+        _p_add.clicked.connect(lambda: self._parse_panel.open_editor())
         _cs("parsing", tr("Parsing"), self._parse_panel, extras=[_p_add], collapsed=True)
 
         # ── Data Logger ───────────────────────────────────────────────────────
@@ -837,15 +794,20 @@ class MainWindow(QMainWindow):
             sb = self._terminal.verticalScrollBar()
             sb.setValue(sb.maximum())
 
-    def _toggle_right_panel(self) -> None:
-        """Show or hide the right panel; update toggle button label."""
-        self._right_panel_visible = not self._right_panel_visible
-        self._right_widget.setVisible(self._right_panel_visible)
+    def _apply_right_panel(self) -> None:
+        """Show/hide the right panel per the current toggle + mode and sync the
+        toggle button. The right panel is only ever shown in Advanced mode."""
+        show = self._right_panel_visible and self._mode == "advanced"
+        self._right_widget.setVisible(show)
         self._panel_toggle_btn.setText("⊞" if self._right_panel_visible else "⊟")
-        if self._right_panel_visible:
-            # Restore a reasonable split when showing again
+        if show:
             total = self._main_splitter.width()
             self._main_splitter.setSizes([int(total * 0.54), int(total * 0.46)])
+
+    def _toggle_right_panel(self) -> None:
+        """Show or hide the right panel (⊞ button / Ctrl+Shift+R)."""
+        self._right_panel_visible = not self._right_panel_visible
+        self._apply_right_panel()
 
     def _toggle_mode(self) -> None:
         self._set_mode("simple" if self._mode == "advanced" else "advanced")
@@ -853,13 +815,9 @@ class MainWindow(QMainWindow):
     def _set_mode(self, mode: str) -> None:
         self._mode = mode
         simple = mode == "simple"
-        self._right_widget.setVisible(not simple)
         self._panel_toggle_btn.setVisible(not simple)
-        self._parser_strip_w.setVisible(not simple)
         self._mode_action.setChecked(simple)
-        if not simple and self._right_panel_visible:
-            total = self._main_splitter.width()
-            self._main_splitter.setSizes([int(total * 0.46), int(total * 0.54)])
+        self._apply_right_panel()
 
     def _change_font_size(self, delta: int) -> None:
         """

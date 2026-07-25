@@ -42,14 +42,13 @@ class SettingsManager(QObject):
         _set_combo(mw._baud_combo,   "baud")
         _set_combo(mw._data_combo,   "data")
         _set_combo(mw._flow_combo,   "flow")
-        _set_combo(mw._parser_combo, "parser")
         _set_combo(mw._eol_combo,    "eol")
 
         # Port is restored after _refresh_ports(); store for deferred apply
         mw._restore_port = data.get("port", "")
 
-        if "prefix" in data:    mw._prefix_edit.setText(data["prefix"])
-        if "sep"    in data:    mw._sep_edit.setText(data["sep"])
+        # Default prefix for new channels (lives in the Parsing panel now)
+        if "prefix" in data:    mw._parse_panel.set_default_prefix(data["prefix"])
 
         if "timestamp"  in data: mw._chk_ts.setChecked(bool(data["timestamp"]))
         if "hex"        in data: mw._chk_hex.setChecked(bool(data["hex"]))
@@ -97,6 +96,10 @@ class SettingsManager(QObject):
         if "mode" in data:
             mw._set_mode(data["mode"])
 
+        if "right_panel" in data:
+            mw._right_panel_visible = bool(data["right_panel"])
+        mw._apply_right_panel()
+
         if "signaling_url" in data:
             mw._signaling_url = str(data["signaling_url"])
 
@@ -114,9 +117,7 @@ class SettingsManager(QObject):
                 "data":       mw._data_combo.currentText(),
                 "flow":       mw._flow_combo.currentText(),
                 "eol":        mw._eol_combo.currentText(),
-                "parser":     mw._parser_combo.currentText(),
-                "prefix":     mw._prefix_edit.text(),
-                "sep":        mw._sep_edit.text(),
+                "prefix":     mw._parse_panel.default_prefix(),
                 "timestamp":  mw._chk_ts.isChecked(),
                 "hex":        mw._chk_hex.isChecked(),
                 "autoscroll": mw._chk_auto.isChecked(),
@@ -131,6 +132,7 @@ class SettingsManager(QObject):
                 "sections":   {k: v.collapsed for k, v in mw._sidebar_sections.items()},
                 "indicator_thresholds": mw._indicator_panel.get_thresholds(),
                 "mode":          mw._mode,
+                "right_panel":   mw._right_panel_visible,
                 "signaling_url": mw._signaling_url,
                 "language":      mw._language,
             }, indent=2))

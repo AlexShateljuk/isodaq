@@ -22,11 +22,13 @@ pop-out windows) and is remembered next launch.
 
 | Mode | What's visible |
 |------|----------------|
-| **Advanced** (default) | Full layout — port bar, terminal, right panel (tabs + sidebar) |
-| **Simple** | Left panel only — port settings, terminal, command input; parser strip hidden |
+| **Advanced** (default) | Port bar, terminal + the right panel (tabs + sidebar) |
+| **Simple** | Left panel only — port settings, terminal, command input |
 
-You can also hide just the right panel with the **`⊞`** button or
-**`Ctrl+Shift+R`**. Mode is persisted across sessions.
+Within Advanced mode you can show/hide just the right panel with the **`⊞`**
+button or **`Ctrl+Shift+R`**. The right panel is **collapsed by default** so a
+fresh window opens focused on the terminal; open it when you need charts, parsing
+or triggers. Both the mode and the panel state are persisted across sessions.
 
 ## Preferences
 

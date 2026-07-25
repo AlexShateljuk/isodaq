@@ -100,22 +100,23 @@ More detail: **[Getting Started](https://github.com/AlexShateljuk/isodaq/wiki/Ge
 ## The interface at a glance
 
 A single window, split into a **terminal side** (left) and a **data side** (right).
+The data side (tabs + sidebar) is **collapsed by default** — click **⊞** in the
+port bar, or press `Ctrl+Shift+R`, to reveal it.
 
-![Interface anatomy](docs/images/ui-map.png)
+![IsoDAQ Studio interface](docs/images/main-window-dark.png)
 
-| # | Region | What it does |
-|---|--------|--------------|
-| 1 | **Port bar** | Port / baud / framing, Connect, Share & Join, panel toggle |
-| 2 | **Terminal** | Timestamped, colour-coded RX/TX with optional log-level highlighting |
-| 3 | **Find bar** | In-terminal search (`Ctrl+F`) |
-| 4 | **Parser strip** | Default parser type / prefix / separator for new channels |
-| 5 | **Command input** | Send line + EOL selector, `↑ ↓` command history |
-| 6 | **Tabs** | Graphs · Indicators · Events · Analytics (each pops out with `⤢`) |
-| 7 | **Chart area** | Live plots / value cards / event log for the active tab |
-| 8 | **Sidebar** | Macros · Parsing · Data Logger · Triggers · Custom command |
+| Region | What it does |
+|--------|--------------|
+| **Port bar** (top-left) | Port / baud / framing, Connect, Share & Join, right-panel toggle |
+| **Terminal** (left) | Timestamped, colour-coded RX/TX with optional log-level highlighting; `Ctrl+F` searches |
+| **Command input** (bottom-left) | Send line + EOL selector, `↑ ↓` command history |
+| **Tabs** (right) | Graphs · Indicators · Events · Analytics (each pops out with `⤢`) |
+| **Chart area** (right) | Live plots / value cards / event log for the active tab |
+| **Sidebar** (far right) | Macros · Parsing · Data Logger · Triggers · Custom command |
 
+All parsing configuration lives in the **Parsing** sidebar section.
 Two layout modes (**Advanced** / **Simple**), two themes (**Dark** / **Light**),
-both persisted across sessions.
+and the panel/mode state are persisted across sessions.
 → **[Interface Overview](https://github.com/AlexShateljuk/isodaq/wiki/Interface-Overview)**
 
 ---
@@ -177,9 +178,11 @@ Extracts named numeric channels from RX lines in real time.
 | Unit | Disambiguates multiple tokens (`pv=43608mV 847mA` → Unit `mV` → `43608`) |
 | × / + | Scale and offset applied after extraction |
 
-Parser modes: **KEY=VALUE**, **JSON**, **CSV ordered**, and **Regex / custom Python
-snippet**. A built-in **Test** field verifies extraction against a sample line
-before you commit a channel.
+No "mode" to pick — the extractor auto-detects **JSON** objects and
+**KEY=VALUE** / `key: value` tokens per line; for anything else, a **custom
+Python snippet** can extract channels however you like. A built-in **Test** field
+verifies extraction against a sample line before you commit a channel, and
+**New-channel prefix** at the top of the section pre-fills the prefix for new channels.
 
 Parsed values feed the **Graphs**, **Indicators**, and **Trigger Events** views.
 
