@@ -57,5 +57,6 @@ OSS6_REFACTOR.md
 
 # Dev tools / test scripts (personal dev captures — not for version control)
 tools/*
-# …except the doc-screenshot generator referenced by README/CONTRIBUTING
+# …except the doc media generators referenced by README/CONTRIBUTING
 !tools/gen_screenshots.py
+!tools/gen_demo_gif.py
