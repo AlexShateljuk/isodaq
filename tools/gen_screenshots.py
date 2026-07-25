@@ -281,7 +281,7 @@ def shot_dialogs(win: MainWindow, app: QApplication) -> None:
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("IsoDAQ Studio")
-    app.setApplicationVersion("0.2.2")
+    app.setApplicationVersion("0.3.0")
     if ICON.exists():
         app.setWindowIcon(QIcon(str(ICON)))
     i18n.init("en")
