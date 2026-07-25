@@ -2,3 +2,5 @@
 #   pip install -r requirements.txt -r requirements-dev.txt
 pytest>=8.0,<9
 ruff>=0.6,<1
+# For tools/gen_demo_gif.py (assembles the animated README demo GIF).
+Pillow>=10.0

@@ -10,7 +10,9 @@ Built with **Python 3 · PyQt6 · pyqtgraph** — runs on **Windows · Linux · 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Docs: Wiki](https://img.shields.io/badge/docs-wiki-8A2BE2.svg)](https://github.com/AlexShateljuk/isodaq/wiki)
 
-![IsoDAQ Studio main window](docs/images/main-window-dark.png)
+![IsoDAQ Studio — live demo](docs/images/demo.gif)
+
+*Connect · parse channels · plot live · fire alerts — and [share the session](#session-sharing-share--join) with anyone.*
 
 </div>
 
@@ -19,6 +21,33 @@ Built with **Python 3 · PyQt6 · pyqtgraph** — runs on **Windows · Linux · 
 > stream, plot them live, fire alerts on the lines that matter, log everything to
 > CSV + SQLite, and share the whole session with a colleague anywhere in the
 > world — all from one window.
+
+---
+
+## Why IsoDAQ Studio?
+
+Most serial tools do one thing — a terminal, *or* a plotter. IsoDAQ Studio pulls
+the whole embedded-debug loop into one window: **read → parse → plot → alert →
+log → share**.
+
+| | **IsoDAQ Studio** | PuTTY | Arduino Serial Monitor | Serial Studio | Teleplot |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Cross-platform (Win / Linux / macOS) | ✅ | ✅ | ✅ | ✅ | VS Code |
+| Full serial terminal | ✅ | ✅ | basic | ➖ | ❌ |
+| Live plots | ✅ | ❌ | basic | ✅ | ✅ |
+| Named-channel parsing (KEY=VALUE / JSON) | ✅ | ❌ | ❌ | ✅ | ✅ |
+| Value dashboards / indicators | ✅ | ❌ | ❌ | ✅ | ➖ |
+| Triggers / alerts on matching lines | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Webhook / Telegram notifications | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Data logging (CSV **+** SQLite) | ✅ | raw log | ❌ | CSV | ❌ |
+| Log-level colouring (ESP-IDF / Zephyr / …) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Command macros / sequences | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Remote session sharing** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Free & open source | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+What's genuinely different: **triggers + notifications** on the lines that matter,
+per-platform **log colouring**, command **macros**, and **remote session sharing** —
+stream a board's live output to a colleague anywhere, no screen-share, no account.
 
 ---
 
@@ -441,9 +470,10 @@ the checks CI runs (`ruff check .` + `pytest`). Please also read the
 [Code of Conduct](CODE_OF_CONDUCT.md). Changes are tracked in
 [CHANGELOG.md](CHANGELOG.md).
 
-> **Regenerating screenshots:** the images under `docs/images/` are produced by
-> `python tools/gen_screenshots.py` (builds the real window, feeds synthetic data,
-> saves `widget.grab()` PNGs). Re-run it after UI changes to keep the docs current.
+> **Regenerating the docs media:** the images under `docs/images/` are produced by
+> `python tools/gen_screenshots.py` and the animated `demo.gif` by
+> `python tools/gen_demo_gif.py` (both build the real window and feed synthetic
+> data — no capture by hand). Re-run them after UI changes to keep the docs current.
 
 ## Security
 
