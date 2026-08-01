@@ -65,7 +65,7 @@ def save_gif(frames: list[Image.Image]) -> None:
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("IsoDAQ Studio")
-    app.setApplicationVersion("0.3.1")
+    app.setApplicationVersion("0.3.0")
     if ICON.exists():
         app.setWindowIcon(QIcon(str(ICON)))
     i18n.init("en")

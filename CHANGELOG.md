@@ -7,15 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.1] — 2026-08-01
-
-### Fixed
-- **Session sharing "by code" works again** — the bundled default signaling/relay
-  URL pointed at a Railway project that no longer exists (every `/register`
-  returned HTTP 404). Point `_DEFAULT_URL` at the live relay. LAN "share by
-  address" was unaffected; you can still override the URL in
-  **Edit → Preferences → Signaling server URL**.
-
 ## [0.3.0] — 2026-07-25
 
 ### Added
