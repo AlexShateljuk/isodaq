@@ -51,3 +51,13 @@ class Connection(QObject):
         # re-wire signals. Signal wiring is done by SerialController (UI layer).
         self.reader = SerialReader(parent=self)
         self.readers: dict[str, object] = {"Serial": self.reader}
+
+        # Per-connection display scalars. Line-identity backs "jump to log line"
+        # (F2): each terminal block gets a unique id. Byte counters feed the
+        # status bar. These are per-device; the terminal *widget* stays in the UI
+        # layer for now (a later step maps connection.id → its QPlainTextEdit).
+        self.line_seq: int = 0
+        self.last_rx_line_id: int = -1
+        self.current_rx_line_id: int = -1
+        self.rx_bytes: int = 0
+        self.tx_bytes: int = 0

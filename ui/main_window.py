@@ -180,8 +180,6 @@ class MainWindow(QMainWindow):
         self._terminal_font_size: int = 11
         self._scrollback_limit: int = 5000
         self._current_theme: str = "vscode"
-        self._rx_bytes = 0
-        self._tx_bytes = 0
         self._session_sec = 0
         self._right_panel_visible: bool = False   # collapsed by default
         self._user_scrolling: bool = False
@@ -203,11 +201,6 @@ class MainWindow(QMainWindow):
         self._serial = SerialController(self)
         # Trigger match/actions + analytics sync + save/load (OSS6).
         self._triggers = TriggerController(self)
-
-        # Per-line identity for "jump to log line" (F2) and in-log search (F1)
-        self._line_seq: int = 0
-        self._last_rx_line_id: int = -1
-        self._current_rx_line_id: int = -1
 
         self._build_ui()
         self._connect_signals()
@@ -251,6 +244,49 @@ class MainWindow(QMainWindow):
     def _reader(self):
         """The active connection's active transport reader."""
         return self._active_conn.reader
+
+    # Per-connection scalars — getter+setter so existing `+=`/`=` call sites
+    # (RX byte counter, TX byte counter, line-identity in _log) keep working
+    # while the state lives on the active connection.
+    @property
+    def _rx_bytes(self):
+        return self._active_conn.rx_bytes
+
+    @_rx_bytes.setter
+    def _rx_bytes(self, value):
+        self._active_conn.rx_bytes = value
+
+    @property
+    def _tx_bytes(self):
+        return self._active_conn.tx_bytes
+
+    @_tx_bytes.setter
+    def _tx_bytes(self, value):
+        self._active_conn.tx_bytes = value
+
+    @property
+    def _line_seq(self):
+        return self._active_conn.line_seq
+
+    @_line_seq.setter
+    def _line_seq(self, value):
+        self._active_conn.line_seq = value
+
+    @property
+    def _last_rx_line_id(self):
+        return self._active_conn.last_rx_line_id
+
+    @_last_rx_line_id.setter
+    def _last_rx_line_id(self, value):
+        self._active_conn.last_rx_line_id = value
+
+    @property
+    def _current_rx_line_id(self):
+        return self._active_conn.current_rx_line_id
+
+    @_current_rx_line_id.setter
+    def _current_rx_line_id(self, value):
+        self._active_conn.current_rx_line_id = value
 
     # ═════════════════════════════════════════════════════════════════════════
     # UI construction
