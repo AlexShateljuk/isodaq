@@ -17,7 +17,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 # ── Set this after deploying relay/server.py ──────────────────────────────────
-_DEFAULT_URL = "https://isodaq-production.up.railway.app"
+_DEFAULT_URL = "https://isodaq-copy-production.up.railway.app"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
