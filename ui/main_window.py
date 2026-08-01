@@ -42,7 +42,6 @@ from PyQt6.QtWidgets import (
 
 from core.connection import Connection
 from core.macros import MacroRunner
-from core.serial_reader import SerialReader
 import core.signaling as signaling
 from core.i18n import current_language, tr
 from ui.logger_panel import LoggerPanel
@@ -170,7 +169,6 @@ class MainWindow(QMainWindow):
         # them via properties that delegate to the active connection (SER3);
         # transport + display widgets stay here for now.
         self._active_conn = Connection(name="Main", parent=self)
-        self._reader = SerialReader(self)
         self._log_colorizer_enabled: set[str] = set()
         # Send through the *active* reader so it follows a transport swap
         # (serial → network → ssh); see SerialController._reader_for().
@@ -248,6 +246,11 @@ class MainWindow(QMainWindow):
     @property
     def _last_parsed(self):
         return self._active_conn.last_parsed
+
+    @property
+    def _reader(self):
+        """The active connection's active transport reader."""
+        return self._active_conn.reader
 
     # ═════════════════════════════════════════════════════════════════════════
     # UI construction

@@ -21,6 +21,7 @@ from PyQt6.QtGui import QColor
 
 from core.data_parser import DataParser
 from core.logger import Logger
+from core.serial_reader import SerialReader
 from core.triggers import TriggerEngine
 
 # Per-connection tint for tags / tabs, cycled as connections are added.
@@ -44,3 +45,9 @@ class Connection(QObject):
         self.engine = TriggerEngine()
         self.logger = Logger()
         self.last_parsed: dict[str, float] = {}
+
+        # Transport: the active reader plus a per-kind cache (Serial/Network/SSH)
+        # so switching transport within this connection doesn't leak threads or
+        # re-wire signals. Signal wiring is done by SerialController (UI layer).
+        self.reader = SerialReader(parent=self)
+        self.readers: dict[str, object] = {"Serial": self.reader}

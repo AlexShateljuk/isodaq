@@ -31,15 +31,14 @@ class SerialController(QObject):
         self._mw = mw
         self._cmd_history: list[str] = []
         self._hist_idx: int = 0
-        self._readers: dict[str, object] = {}   # transport kind → reader instance
         self._ssh_pw_cache: dict[str, str] = {}  # session name → password (this run only)
 
     def wire(self) -> None:
-        """Connect the initial (serial) reader's connection-state signals.
-        (line_received stays wired to MainWindow's RX pipeline.) Network/SSH
-        readers are created and wired lazily in :meth:`_reader_for`."""
-        self._readers["Serial"] = self._mw._reader
-        r = self._mw._reader
+        """Connect the active connection's default (serial) reader's
+        connection-state signals. (line_received stays wired to MainWindow's RX
+        pipeline.) Network/SSH readers are created and wired lazily in
+        :meth:`_reader_for`. The per-kind reader cache lives on the Connection."""
+        r = self._mw._active_conn.reader
         r.error_occurred.connect(self.on_serial_error)
         r.connected.connect(self.on_connected)
         r.disconnected.connect(self.on_disconnected)
@@ -47,20 +46,21 @@ class SerialController(QObject):
     # ── Connection ──────────────────────────────────────────────────────────────
 
     def _reader_for(self, kind: str):
-        """Get (or lazily create + wire) the reader for a transport kind.
-
-        Readers are cached per kind so switching transports doesn't leak threads
-        and doesn't re-wire signals. The active one is mirrored to ``mw._reader``
-        so send/isRunning/disconnect and the macro runner all follow the swap."""
-        r = self._readers.get(kind)
+        """Get (or lazily create + wire) the reader for a transport kind, cached
+        on the active Connection so switching transports within a connection
+        doesn't leak threads or re-wire signals. The chosen one becomes the
+        connection's active reader (``mw._reader``), so send/isRunning/disconnect
+        and the macro runner all follow the swap."""
+        conn = self._mw._active_conn
+        r = conn.readers.get(kind)
         if r is None:
             mw = self._mw
-            r = {"Network": NetworkReader, "SSH": SSHReader}.get(kind, SerialReader)(mw)
+            r = {"Network": NetworkReader, "SSH": SSHReader}.get(kind, SerialReader)(conn)
             r.line_received.connect(mw._on_line_received)
             r.error_occurred.connect(self.on_serial_error)
             r.connected.connect(self.on_connected)
             r.disconnected.connect(self.on_disconnected)
-            self._readers[kind] = r
+            conn.readers[kind] = r
         return r
 
     def toggle_connection(self) -> None:
@@ -110,7 +110,7 @@ class SerialController(QObject):
                              bytesize=bytesize, parity=parity, stopbits=stopbits,
                              flow=mw._flow_combo.currentText())
 
-        mw._reader = reader
+        mw._active_conn.reader = reader
         err = reader.connect_port()
         if err:
             mw._log("ERR", f"Connection failed: {err}", _win.C_ERR)
