@@ -16,6 +16,16 @@ ROOT = Path(SPECPATH)
 
 block_cipher = None
 
+# Bundle the SSH transport (paramiko is a declared runtime dep, so this normally
+# fires). Guarded so a stripped-down dev venv without paramiko still builds — it
+# just ships without SSH. PyInstaller's contrib hooks pull in cryptography.
+_ssh_hidden = []
+try:
+    import paramiko  # noqa: F401
+    _ssh_hidden = ["paramiko"]
+except ImportError:
+    pass
+
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
@@ -40,7 +50,12 @@ a = Analysis(
         "serial.tools.list_ports_common",
         "serial.tools.list_ports_posix",
         "serial.tools.list_ports_windows",
-    ],
+        # pyserial URL handlers used by the Network transport
+        "serial.urlhandler.protocol_socket",
+        "serial.urlhandler.protocol_rfc2217",
+        "serial.urlhandler.protocol_loop",
+        "serial.rfc2217",
+    ] + _ssh_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
