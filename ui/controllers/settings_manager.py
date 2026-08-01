@@ -47,6 +47,37 @@ class SettingsManager(QObject):
         # Port is restored after _refresh_ports(); store for deferred apply
         mw._restore_port = data.get("port", "")
 
+        # Transport (serial/network/ssh) — restore targets first, then the combo
+        # so its currentTextChanged handler picks up the saved URL / SSH sessions.
+        mw._net_url = str(data.get("net_url", ""))
+
+        sessions = data.get("ssh_sessions")
+        if isinstance(sessions, list):
+            mw._ssh_sessions = [dict(s) for s in sessions if isinstance(s, dict)]
+        # Migrate the legacy single-session format ("ssh": {...}).
+        legacy = data.get("ssh")
+        if not mw._ssh_sessions and isinstance(legacy, dict) and legacy.get("host"):
+            mw._ssh_sessions = [{
+                "name":     f"{legacy.get('username', '')}@{legacy.get('host', '')}".strip("@"),
+                "host":     str(legacy.get("host", "")),
+                "port":     int(legacy.get("port", 22) or 22),
+                "username": str(legacy.get("username", "")),
+                "key_path": str(legacy.get("key_path", "")),
+                "command":  str(legacy.get("command", "cat /dev/ttyUSB0")),
+            }]
+        # Pick the active session (by saved name, else the first).
+        active = str(data.get("ssh_active", ""))
+        chosen = next((s for s in mw._ssh_sessions if s.get("name") == active), None)
+        if chosen is None and mw._ssh_sessions:
+            chosen = mw._ssh_sessions[0]
+        if chosen is not None:
+            mw._ssh_params = dict(chosen)   # password is never restored from disk
+
+        if "transport" in data:
+            idx = mw._transport_combo.findText(str(data["transport"]))
+            if idx >= 0:
+                mw._transport_combo.setCurrentIndex(idx)
+
         # Default prefix for new channels (lives in the Parsing panel now)
         if "prefix" in data:    mw._parse_panel.set_default_prefix(data["prefix"])
 
@@ -113,6 +144,18 @@ class SettingsManager(QObject):
             mw._CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             mw._CONFIG_PATH.write_text(json.dumps({
                 "port":       mw._port_combo.currentText(),
+                "transport":    mw._transport_combo.currentText(),
+                "net_url":      getattr(mw, "_net_url", ""),
+                # Saved SSH sessions — passwords are deliberately never persisted.
+                "ssh_sessions": [{
+                    "name":     s.get("name", ""),
+                    "host":     s.get("host", ""),
+                    "port":     s.get("port", 22),
+                    "username": s.get("username", ""),
+                    "key_path": s.get("key_path", ""),
+                    "command":  s.get("command", ""),
+                } for s in mw._ssh_sessions],
+                "ssh_active":   mw._ssh_params.get("name", ""),
                 "baud":       mw._baud_combo.currentText(),
                 "data":       mw._data_combo.currentText(),
                 "flow":       mw._flow_combo.currentText(),

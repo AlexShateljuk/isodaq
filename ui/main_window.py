@@ -172,7 +172,12 @@ class MainWindow(QMainWindow):
         self._engine = TriggerEngine()
         self._reader = SerialReader(self)
         self._log_colorizer_enabled: set[str] = set()
-        self._macro_runner = MacroRunner(self._reader.send, self)
+        # Send through the *active* reader so it follows a transport swap
+        # (serial → network → ssh); see SerialController._reader_for().
+        self._macro_runner = MacroRunner(lambda data: self._reader.send(data), self)
+        self._ssh_sessions: list[dict] = []   # saved SSH profiles (name/host/port/user/key/command; no password)
+        self._ssh_params: dict = {}           # active profile (+ in-memory password)
+        self._net_url: str = ""               # last-used network target (socket://… / rfc2217://…)
         self._parser = DataParser()
         self._last_parsed: dict[str, float] = {}
         self._float_wins: list[_FloatWindow] = []
@@ -333,16 +338,25 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(10, 8, 10, 8)
         lay.setSpacing(10)
 
-        # Row 1: port + baud + connect
+        # Row 1: transport + target + connect
         r1 = QHBoxLayout()
         r1.setSpacing(10)
-        r1.addWidget(self._lbl("PORT", mono=True, dim=True))
+        self._transport_combo = QComboBox()
+        self._transport_combo.addItems(["Serial", "Network", "SSH"])
+        self._transport_combo.setFixedWidth(92)
+        self._transport_combo.setToolTip(
+            tr("Transport: local serial, TCP/RFC2217 network, or SSH"))
+        r1.addWidget(self._transport_combo)
         self._port_combo = QComboBox()
         self._port_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._port_combo.activated.connect(self._on_port_activated)
+        self._port_combo.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._port_combo.customContextMenuRequested.connect(self._on_port_context_menu)
         r1.addWidget(self._port_combo)
         self._refresh_btn = QPushButton("⟳")
         self._refresh_btn.setFixedWidth(50)
-        self._refresh_btn.clicked.connect(self._serial.refresh_ports)
+        self._refresh_btn.setToolTip(tr("Rescan serial ports"))
+        self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         r1.addWidget(self._refresh_btn)
         self._conn_btn = QPushButton(tr("Connect"))
         self._conn_btn.setObjectName("connectBtn")
@@ -434,7 +448,72 @@ class MainWindow(QMainWindow):
         clr.clicked.connect(lambda: self._terminal.clear())
         r3.addWidget(clr)
         lay.addLayout(r3)
+
+        # Wire transport switching last (all row widgets now exist).
+        self._transport_combo.currentTextChanged.connect(self._on_transport_changed)
         return bar
+
+    def _on_transport_changed(self, kind: str) -> None:
+        """Adapt the target field to the selected transport.
+
+        Serial → port list (rescanned). Network → editable URL field. SSH → a
+        read-only summary; the credentials are gathered by a dialog on Connect.
+        """
+        combo = self._port_combo
+        # Remember a typed network URL before we repurpose the field.
+        if combo.isEditable():
+            self._net_url = combo.currentText().strip()
+
+        if kind == "Network":
+            combo.setEditable(True)
+            combo.clear()
+            combo.lineEdit().setPlaceholderText(
+                "socket://192.168.1.50:23   ·   rfc2217://host:4001")
+            combo.setEditText(self._net_url)
+            self._refresh_btn.setEnabled(False)
+            self._refresh_btn.setText("⟳")
+        elif kind == "SSH":
+            combo.setEditable(False)
+            self._serial.populate_ssh_combo()
+            self._refresh_btn.setEnabled(True)
+            self._refresh_btn.setText("✎")
+            self._refresh_btn.setToolTip(tr("Edit the selected SSH session"))
+        else:  # Serial
+            combo.setEditable(False)
+            self._refresh_btn.setEnabled(True)
+            self._refresh_btn.setText("⟳")
+            self._refresh_btn.setToolTip(tr("Rescan serial ports"))
+            self._serial.refresh_ports()
+
+    def _on_refresh_clicked(self) -> None:
+        """⟳ / ✎ button — rescan ports (Serial) or edit the SSH session (SSH)."""
+        if self._transport_combo.currentText() == "SSH":
+            self._serial.edit_ssh_session(new=False)
+        else:
+            self._serial.refresh_ports()
+
+    def _on_port_activated(self, index: int) -> None:
+        """User picked an entry in the target combo. Only SSH acts on it
+        (selecting a saved session, or the ＋ Add entry)."""
+        if self._transport_combo.currentText() == "SSH":
+            self._serial.handle_ssh_activation(index)
+
+    def _on_port_context_menu(self, pos) -> None:
+        """Right-click a saved SSH session → Edit… / Delete straight from the list."""
+        if self._transport_combo.currentText() != "SSH":
+            return
+        idx = self._port_combo.currentIndex()
+        if idx < 0 or idx >= len(self._ssh_sessions):
+            return
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self._port_combo)
+        act_edit = menu.addAction(tr("Edit…"))
+        act_del = menu.addAction(tr("Delete"))
+        chosen = menu.exec(self._port_combo.mapToGlobal(pos))
+        if chosen is act_edit:
+            self._serial.edit_ssh_session(new=False, index=idx)
+        elif chosen is act_del:
+            self._serial.delete_ssh_session(idx)
 
     def _build_input_bar(self) -> QWidget:
         """

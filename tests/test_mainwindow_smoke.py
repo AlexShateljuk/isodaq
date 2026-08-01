@@ -117,3 +117,64 @@ def test_settings_roundtrip(qapp, tmp_path, monkeypatch):
         assert b._current_theme == "light"
     finally:
         b.close()
+
+
+def test_ssh_sessions_persist_without_password(qapp, tmp_path, monkeypatch):
+    """Saved SSH sessions survive a restart; the password never touches disk."""
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    cfg = tmp_path / "config.json"
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", cfg)
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+
+    a = MainWindow()
+    a._ssh_sessions = [
+        {"name": "Lab Pi", "host": "192.168.1.20", "port": 22,
+         "username": "pi", "key_path": "", "command": "cat /dev/ttyACM0"},
+        {"name": "Router", "host": "10.0.0.1", "port": 2222,
+         "username": "root", "key_path": "~/.ssh/id_ed25519", "command": "logread -f"},
+    ]
+    a._serial._ssh_pw_cache["Lab Pi"] = "hunter2"
+    a._ssh_params = dict(a._ssh_sessions[0], password="hunter2")
+    a._settings.save()
+    a.close()
+
+    import json
+    saved = json.loads(cfg.read_text())
+    assert saved["ssh_active"] == "Lab Pi"
+    assert [s["name"] for s in saved["ssh_sessions"]] == ["Lab Pi", "Router"]
+    assert all("password" not in s for s in saved["ssh_sessions"])
+
+    b = MainWindow()
+    try:
+        assert len(b._ssh_sessions) == 2
+        assert b._ssh_params.get("name") == "Lab Pi"
+        assert b._ssh_params.get("password", "") == ""   # never restored
+    finally:
+        b.close()
+
+
+def test_ssh_legacy_single_session_migrates(qapp, tmp_path, monkeypatch):
+    """A pre-sessions config ("ssh": {...}) is migrated to one saved session."""
+    import json
+
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({
+        "transport": "SSH",
+        "ssh": {"host": "old.host", "port": 22, "username": "me",
+                "key_path": "", "command": "cat /dev/ttyUSB0"},
+    }))
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", cfg)
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+
+    w = MainWindow()
+    try:
+        assert len(w._ssh_sessions) == 1
+        assert w._ssh_sessions[0]["host"] == "old.host"
+        assert w._ssh_sessions[0]["name"] == "me@old.host"
+    finally:
+        w.close()

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Network & SSH transports (SER1)** — the port bar gains a **transport
+  selector** (Serial / Network / SSH) so the terminal can attach to more than a
+  local COM/tty port:
+  - **Network** — `socket://host:port` (raw TCP: telnet-style log streams,
+    `ser2net`/`socat` bridges), `rfc2217://host:port` (the network-serial
+    standard: Moxa NPort, Digi, Lantronix, ser2net) and `loop://`, all via
+    pyserial's URL handlers — **no new dependency**. The connection opens on the
+    reader thread so a dead host never freezes the UI.
+  - **SSH** — connect to a remote host and stream a command's output (default
+    `cat /dev/ttyUSB0`, e.g. a Raspberry Pi's own serial console or `tail -f`),
+    with the command field wired to stdin. Uses **`paramiko`** (now a bundled
+    dependency, so SSH works out of the box in the release binaries); it is
+    still imported lazily, and a from-source checkout without it gets a friendly
+    "`pip install paramiko`" notice instead of failing.
+  - **Saved SSH sessions** — a quick-access list of named SSH profiles
+    (host/port/user/key/command). In SSH mode the target dropdown lists your
+    saved sessions plus a “＋ Add SSH session…” entry; the ⟳ button becomes ✎ to
+    edit (or delete) the selected one, and right-clicking a session offers
+    **Edit… / Delete** straight from the list (with a confirmation). Sessions
+    persist across restarts;
+    **passwords are never written to disk** — you're asked once per run (blank
+    falls back to a key/agent) and it's cached for the session. The old
+    single-session format is migrated automatically.
+  - Under the hood: a shared `core/stream_reader.py` base (read loop, `send`,
+    connection-state) with `SerialReader`/`NetworkReader`/`SSHReader`; readers
+    are swappable and cached per transport. Transport, network URL and SSH
+    details persist across restarts (**the SSH password is never saved**). New
+    tests in `tests/test_net_reader.py`.
+
 ## [0.3.0] — 2026-07-25
 
 ### Added
