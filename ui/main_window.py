@@ -40,13 +40,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core.logger import Logger
+from core.connection import Connection
 from core.macros import MacroRunner
 from core.serial_reader import SerialReader
 import core.signaling as signaling
 from core.i18n import current_language, tr
-from core.triggers import TriggerEngine
-from core.data_parser import DataParser
 from ui.logger_panel import LoggerPanel
 from ui.log_colorizer_dialog import LogColorizerDialog, match_log_color
 from ui.macro_panel import MacroPanel
@@ -167,9 +165,11 @@ class MainWindow(QMainWindow):
         self.resize(1300, 780)
         self.setMinimumSize(900, 600)
 
-        # Core services
-        self._logger = Logger()
-        self._engine = TriggerEngine()
+        # Core services — the active Connection owns the per-device data pipeline
+        # (parser / trigger engine / logger / last-parsed). MainWindow reaches
+        # them via properties that delegate to the active connection (SER3);
+        # transport + display widgets stay here for now.
+        self._active_conn = Connection(name="Main", parent=self)
         self._reader = SerialReader(self)
         self._log_colorizer_enabled: set[str] = set()
         # Send through the *active* reader so it follows a transport swap
@@ -178,8 +178,6 @@ class MainWindow(QMainWindow):
         self._ssh_sessions: list[dict] = []   # saved SSH profiles (name/host/port/user/key/command; no password)
         self._ssh_params: dict = {}           # active profile (+ in-memory password)
         self._net_url: str = ""               # last-used network target (socket://… / rfc2217://…)
-        self._parser = DataParser()
-        self._last_parsed: dict[str, float] = {}
         self._float_wins: list[_FloatWindow] = []
         self._terminal_font_size: int = 11
         self._scrollback_limit: int = 5000
@@ -227,6 +225,29 @@ class MainWindow(QMainWindow):
 
         self._log("SYS", "IsoDAQ Studio started.", C_SYS)
         self._log("SYS", "Scanning serial ports…", C_DIM)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Active-connection delegation (SER3)
+    #   The RX pipeline and controllers read these; they resolve to whichever
+    #   Connection is active, so multi-connection support is a matter of
+    #   switching _active_conn. See SER3_REFACTOR.md.
+    # ═════════════════════════════════════════════════════════════════════════
+
+    @property
+    def _parser(self):
+        return self._active_conn.parser
+
+    @property
+    def _engine(self):
+        return self._active_conn.engine
+
+    @property
+    def _logger(self):
+        return self._active_conn.logger
+
+    @property
+    def _last_parsed(self):
+        return self._active_conn.last_parsed
 
     # ═════════════════════════════════════════════════════════════════════════
     # UI construction
