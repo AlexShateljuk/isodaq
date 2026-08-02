@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
         # (parser / trigger engine / logger / last-parsed). MainWindow reaches
         # them via properties that delegate to the active connection (SER3);
         # transport + display widgets stay here for now.
-        self._active_conn = Connection(name="Main", parent=self)
+        self._active_conn = Connection(name="Device 1", parent=self)
         self._connections: list[Connection] = [self._active_conn]
         self._log_colorizer_enabled: set[str] = set()
         # Send through the *active* reader so it follows a transport swap
@@ -433,12 +433,11 @@ class MainWindow(QMainWindow):
         lay.setSpacing(6)
 
         self._conn_bar = QTabBar()
+        self._conn_bar.setObjectName("connTabs")
         self._conn_bar.setExpanding(False)
         self._conn_bar.setDrawBase(False)
-        self._conn_bar.setTabsClosable(True)
         self._conn_bar.setElideMode(Qt.TextElideMode.ElideRight)
         self._conn_bar.currentChanged.connect(self._on_conn_tab_changed)
-        self._conn_bar.tabCloseRequested.connect(self._on_conn_tab_close)
         lay.addWidget(self._conn_bar, 1)
 
         add_btn = QPushButton("+")
@@ -465,21 +464,30 @@ class MainWindow(QMainWindow):
     def _add_conn_tab(self, conn) -> None:
         idx = self._conn_bar.addTab(conn.name)
         self._conn_bar.setTabData(idx, conn.id)
+        # A theme-styled close button (avoids the stock red QTabBar ×).
+        close = QPushButton("×")
+        close.setObjectName("connCloseBtn")
+        close.setFixedSize(16, 16)
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.setToolTip(tr("Close connection"))
+        close.clicked.connect(lambda _=False, cid=conn.id: self._close_conn_by_id(cid))
+        self._conn_bar.setTabButton(idx, QTabBar.ButtonPosition.RightSide, close)
         self._update_conn_tab(conn)
 
     def _update_conn_tab(self, conn) -> None:
-        """Refresh a tab's connected dot + colour."""
+        """Refresh a tab's label + connected state (shown via text colour:
+        the connection's tint when connected, dim when idle)."""
         idx = self._conn_tab_index(conn.id)
         if idx < 0:
             return
         running = conn.reader.isRunning()
-        self._conn_bar.setTabText(idx, f"{'●' if running else '○'} {conn.name}")
+        self._conn_bar.setTabText(idx, conn.name)
         self._conn_bar.setTabTextColor(idx, conn.color if running else C_DIM)
 
     def _add_connection(self) -> None:
         """Create a new connection (its own terminal + transport) and focus it."""
         n = len(self._connections)
-        conn = Connection(name=f"Dev {n + 1}",
+        conn = Connection(name=f"Device {n + 1}",
                           color=PALETTE[n % len(PALETTE)], parent=self)
         self._connections.append(conn)
         self._add_terminal(conn)
@@ -493,12 +501,13 @@ class MainWindow(QMainWindow):
         if conn is not None:
             self._set_active_connection(conn)
 
-    def _on_conn_tab_close(self, index: int) -> None:
+    def _close_conn_by_id(self, cid) -> None:
         if len(self._connections) <= 1:
             return   # always keep at least one connection
-        conn = self._conn_by_id(self._conn_bar.tabData(index))
+        conn = self._conn_by_id(cid)
         if conn is None:
             return
+        index = self._conn_tab_index(cid)
         for r in conn.readers.values():
             if r.isRunning():
                 r.disconnect_port()

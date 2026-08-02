@@ -123,6 +123,7 @@ class SerialController(QObject):
         mw = self._mw
         label = f"{port} · {baud}" if baud else port
         mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
+        conn.name = port                       # tab reflects what it's attached to
         mw._update_conn_tab(conn)              # tab state dot always
         if conn is mw._active_conn:            # button/statusbar only for active
             mw._conn_btn.setText(tr("Disconnect"))

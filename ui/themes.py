@@ -157,6 +157,33 @@ QTabBar::tab {{
 QTabBar::tab:selected {{ color: {c['accent']}; border-bottom-color: {c['accent']}; font-weight: 600; }}
 QTabBar::tab:hover:!selected {{ color: {c['fg_mid']}; background: {c['bg3']}; }}
 
+/* Connection tab strip (SER3) — editor-style device tabs */
+QTabBar#connTabs {{ background: transparent; }}
+QTabBar#connTabs::tab {{
+    background: {c['bg']}; color: {c['fg_dim']};
+    padding: 5px 6px 5px 11px; margin-right: 3px;
+    border: 1px solid {c['border']};
+    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-bottom: 2px solid transparent;
+    min-width: 82px; max-width: 160px; font-size: 11px;
+}}
+QTabBar#connTabs::tab:selected {{
+    background: {c['bg2']}; color: {c['fg']};
+    border-color: {c['border']}; border-bottom-color: {c['accent']};
+}}
+QTabBar#connTabs::tab:hover:!selected {{ background: {c['bg3']}; color: {c['fg_mid']}; }}
+QPushButton#connCloseBtn {{
+    border: none; background: transparent; color: {c['fg_dim']};
+    font-size: 13px; font-weight: 600; padding: 0; margin: 0;
+    border-radius: 3px;
+}}
+QPushButton#connCloseBtn:hover {{ color: {c['err']}; background: {c['bg3']}; }}
+QPushButton#addConnBtn {{
+    border: 1px solid {c['border']}; border-radius: 4px;
+    background: {c['bg2']}; color: {c['fg_dim']}; font-size: 15px; padding: 0;
+}}
+QPushButton#addConnBtn:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
+
 /* ── Scrollbars ─────────────────────────────────────────── */
 QScrollBar:vertical {{ background: transparent; width: 6px; margin: 2px; }}
 QScrollBar::handle:vertical {{
