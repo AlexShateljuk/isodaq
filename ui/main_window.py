@@ -816,8 +816,9 @@ class MainWindow(QMainWindow):
         """Wires Qt signals from SerialReader, TriggerEngine and MacroRunner to GUI slots."""
         self._chk_auto.stateChanged.connect(self._on_autoscroll_toggled)
         # Terminal scroll tracking is wired per-terminal in _add_terminal (SER3).
-        self._reader.line_received.connect(self._on_line_received)
-        self._serial.wire()   # reader connection-state signals → SerialController
+        # The active connection's reader (line_received + state) is wired here,
+        # capturing its owning connection so RX routes correctly (SER3).
+        self._serial.wire()
 
         # Trigger matches → GUI highlight + log
         self._engine.on_match(self._triggers.on_match_threadsafe)
@@ -845,36 +846,51 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str, str)
     def _on_line_received(self, line: str, ts: str):
-        """Called in GUI thread via queued connection."""
-        self._rx_bytes += len(line.encode())
-        self._sb_rx.setText(f"RX: {self._fmt_bytes(self._rx_bytes)}")
+        """Back-compat entry (tools / a single connection): route to the active
+        connection's pipeline."""
+        self._on_conn_line(self._active_conn, line, ts)
+
+    def _on_conn_line(self, conn, line: str, ts: str):
+        """RX pipeline for a specific source connection (GUI thread, queued).
+
+        Data (log, terminal, line-identity, parse) always runs against *conn*.
+        The shared display panels, macro runner and session sharing update only
+        when *conn* is the active one. Per-connection triggers ("fire always")
+        land in a later step — for now the active engine runs."""
+        is_active = conn is self._active_conn
+
+        conn.rx_bytes += len(line.encode())
+        if is_active:
+            self._sb_rx.setText(f"RX: {self._fmt_bytes(conn.rx_bytes)}")
 
         # Log (non-blocking — goes to queue)
-        self._logger.write_line(line, ts)
+        conn.logger.write_line(line, ts)
 
-        # Display first — apply log-level color if a platform is active.
+        # Display into conn's terminal first — apply log-level color if active.
         # Logging before the trigger check gives this line a stable block id
         # that a trigger event can later jump back to (F2).
         log_color = match_log_color(line, self._log_colorizer_enabled)
-        self._log("RX", line, C_RX, ts, text_color=log_color)
-        self._current_rx_line_id = self._last_rx_line_id
+        self._log("RX", line, C_RX, ts, text_color=log_color, conn=conn)
+        conn.current_rx_line_id = conn.last_rx_line_id
 
         # Check triggers (fast path in GUI thread — engine is thread-safe)
-        self._engine.check(line, ts)
+        if is_active:
+            conn.engine.check(line, ts)
 
-        # Parse numeric channels → update live values + chart + indicators
-        parsed = self._parser.parse(line)
+        # Parse numeric channels → update conn state (+ live panels if active)
+        parsed = conn.parser.parse(line)
         if parsed:
-            self._last_parsed.update(parsed)
-            self._parse_panel.update_values(parsed)
-            self._chart_panel.update(parsed)
-            self._indicator_panel.update(parsed)
+            conn.last_parsed.update(parsed)
+            if is_active:
+                self._parse_panel.update_values(parsed)
+                self._chart_panel.update(parsed)
+                self._indicator_panel.update(parsed)
 
-        # Feed macro runner (for wait-for pattern matching)
-        self._macro_runner.feed_rx_line(line)
-
-        # Broadcast to any connected session viewers (no-op if not sharing)
-        self._session.feed_line(line, "rx")
+        if is_active:
+            # Feed macro runner (for wait-for pattern matching)
+            self._macro_runner.feed_rx_line(line)
+            # Broadcast to any connected session viewers (no-op if not sharing)
+            self._session.feed_line(line, "rx")
 
     @staticmethod
     def _repolish(widget) -> None:
@@ -1008,12 +1024,18 @@ class MainWindow(QMainWindow):
     # Terminal helpers
     # ═════════════════════════════════════════════════════════════════════════
 
-    def _log(self, direction: str, text: str, color: QColor, ts: str | None = None, text_color: QColor | None = None):
+    def _log(self, direction: str, text: str, color: QColor, ts: str | None = None,
+             text_color: QColor | None = None, conn=None):
+        # Route to a specific connection's terminal + line-identity; default is
+        # the active connection (SER3). SYS/ERR/TX callers pass no conn → active.
+        conn = conn or self._active_conn
+        term = self._terminals[conn.id]
+
         if not ts and self._chk_ts.isChecked():
             from datetime import datetime
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
-        cursor = self._terminal.textCursor()
+        cursor = term.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
         dim_fmt = QTextCharFormat()
@@ -1034,15 +1056,15 @@ class MainWindow(QMainWindow):
         cursor.insertText(f"{direction:<3}  ", dir_fmt)
         cursor.insertText(text, txt_fmt)
         # Tag this line's block with a stable id so events can jump to it (F2)
-        self._line_seq += 1
-        cursor.block().setUserState(self._line_seq)
+        conn.line_seq += 1
+        cursor.block().setUserState(conn.line_seq)
         if direction == "RX":
-            self._last_rx_line_id = self._line_seq
+            conn.last_rx_line_id = conn.line_seq
         cursor.insertText("\n", txt_fmt)
 
         # Limit scrollback to configured limit — must happen BEFORE ensureCursorVisible
         # so the trim doesn't shift the viewport after the scroll-to-bottom.
-        doc = self._terminal.document()
+        doc = term.document()
         if doc.lineCount() > self._scrollback_limit:
             cur = QTextCursor(doc)
             cur.movePosition(QTextCursor.MoveOperation.Start)
@@ -1050,8 +1072,9 @@ class MainWindow(QMainWindow):
                              max(1, self._scrollback_limit // 10))
             cur.removeSelectedText()
 
-        if self._chk_auto.isChecked() and not self._user_scrolling:
-            sb = self._terminal.verticalScrollBar()
+        # Autoscroll only the visible (active) terminal.
+        if conn is self._active_conn and self._chk_auto.isChecked() and not self._user_scrolling:
+            sb = term.verticalScrollBar()
             sb.setValue(sb.maximum())
 
     # ═════════════════════════════════════════════════════════════════════════

@@ -33,15 +33,22 @@ class SerialController(QObject):
         self._hist_idx: int = 0
         self._ssh_pw_cache: dict[str, str] = {}  # session name → password (this run only)
 
+    def wire_reader(self, conn, reader) -> None:
+        """Wire a reader's signals, capturing its owning *conn* so RX lines route
+        to that connection's pipeline (not whichever is active)."""
+        mw = self._mw
+        reader.line_received.connect(
+            lambda line, ts, c=conn: mw._on_conn_line(c, line, ts))
+        reader.error_occurred.connect(self.on_serial_error)
+        reader.connected.connect(self.on_connected)
+        reader.disconnected.connect(self.on_disconnected)
+
     def wire(self) -> None:
-        """Connect the active connection's default (serial) reader's
-        connection-state signals. (line_received stays wired to MainWindow's RX
-        pipeline.) Network/SSH readers are created and wired lazily in
-        :meth:`_reader_for`. The per-kind reader cache lives on the Connection."""
-        r = self._mw._active_conn.reader
-        r.error_occurred.connect(self.on_serial_error)
-        r.connected.connect(self.on_connected)
-        r.disconnected.connect(self.on_disconnected)
+        """Wire the active connection's default (serial) reader. Network/SSH
+        readers are created and wired lazily in :meth:`_reader_for`; the per-kind
+        reader cache lives on the Connection."""
+        conn = self._mw._active_conn
+        self.wire_reader(conn, conn.reader)
 
     # ── Connection ──────────────────────────────────────────────────────────────
 
@@ -54,12 +61,8 @@ class SerialController(QObject):
         conn = self._mw._active_conn
         r = conn.readers.get(kind)
         if r is None:
-            mw = self._mw
             r = {"Network": NetworkReader, "SSH": SSHReader}.get(kind, SerialReader)(conn)
-            r.line_received.connect(mw._on_line_received)
-            r.error_occurred.connect(self.on_serial_error)
-            r.connected.connect(self.on_connected)
-            r.disconnected.connect(self.on_disconnected)
+            self.wire_reader(conn, r)
             conn.readers[kind] = r
         return r
 
