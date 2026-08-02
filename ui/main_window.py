@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
     QTabWidget,
     QTextEdit,
@@ -245,6 +246,11 @@ class MainWindow(QMainWindow):
         """The active connection's active transport reader."""
         return self._active_conn.reader
 
+    @property
+    def _terminal(self):
+        """The active connection's terminal widget."""
+        return self._terminals[self._active_conn.id]
+
     # Per-connection scalars — getter+setter so existing `+=`/`=` call sites
     # (RX byte counter, TX byte counter, line-identity in _log) keep working
     # while the state lives on the active connection.
@@ -375,15 +381,30 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(self._build_port_bar())
 
-        self._terminal = QTextEdit()
-        self._terminal.setObjectName("terminal")
-        self._terminal.setReadOnly(True)
-        self._terminal.setFont(QFont("JetBrains Mono", 11))
-        lay.addWidget(self._terminal)
+        # One terminal widget per connection, shown via a stack (SER3). The
+        # active connection's terminal is exposed as `self._terminal`.
+        self._terminal_stack = QStackedWidget()
+        self._terminals: dict[str, QTextEdit] = {}
+        self._add_terminal(self._active_conn)
+        lay.addWidget(self._terminal_stack)
 
         lay.addWidget(self._search.build_bar())
         lay.addWidget(self._build_input_bar())
         return w
+
+    def _add_terminal(self, conn) -> QTextEdit:
+        """Create, configure and register a terminal widget for *conn*."""
+        term = QTextEdit()
+        term.setObjectName("terminal")
+        term.setReadOnly(True)
+        term.setFont(QFont("JetBrains Mono", self._terminal_font_size))
+        # Per-terminal scroll tracking (pauses autoscroll while the user drags).
+        sb = term.verticalScrollBar()
+        sb.sliderPressed.connect(lambda: setattr(self, "_user_scrolling", True))
+        sb.sliderReleased.connect(lambda: setattr(self, "_user_scrolling", False))
+        self._terminals[conn.id] = term
+        self._terminal_stack.addWidget(term)
+        return term
 
     def _build_port_bar(self) -> QWidget:
         """
@@ -794,9 +815,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         """Wires Qt signals from SerialReader, TriggerEngine and MacroRunner to GUI slots."""
         self._chk_auto.stateChanged.connect(self._on_autoscroll_toggled)
-        _sb = self._terminal.verticalScrollBar()
-        _sb.sliderPressed.connect(lambda: setattr(self, "_user_scrolling", True))
-        _sb.sliderReleased.connect(lambda: setattr(self, "_user_scrolling", False))
+        # Terminal scroll tracking is wired per-terminal in _add_terminal (SER3).
         self._reader.line_received.connect(self._on_line_received)
         self._serial.wire()   # reader connection-state signals → SerialController
 
@@ -964,10 +983,15 @@ class MainWindow(QMainWindow):
         Applies to all existing text immediately via document().setDefaultFont().
         """
         self._terminal_font_size = max(8, min(24, self._terminal_font_size + delta))
-        font = QFont("JetBrains Mono", self._terminal_font_size)
-        self._terminal.setFont(font)
-        self._terminal.document().setDefaultFont(font)
+        self._apply_terminal_font()
         self._font_size_lbl.setText(str(self._terminal_font_size))
+
+    def _apply_terminal_font(self) -> None:
+        """Apply the current font size to every connection's terminal."""
+        font = QFont("JetBrains Mono", self._terminal_font_size)
+        for term in self._terminals.values():
+            term.setFont(font)
+            term.document().setDefaultFont(font)
 
     def _open_log_colorizer(self):
         dlg = LogColorizerDialog(self._log_colorizer_enabled, self)

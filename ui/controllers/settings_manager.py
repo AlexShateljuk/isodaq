@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 from PyQt6.QtCore import QObject
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QComboBox
 
 from core import i18n
@@ -88,9 +87,7 @@ class SettingsManager(QObject):
 
         if "font_size" in data:
             mw._terminal_font_size = max(8, min(24, int(data["font_size"])))
-            font = QFont("JetBrains Mono", mw._terminal_font_size)
-            mw._terminal.setFont(font)
-            mw._terminal.document().setDefaultFont(font)
+            mw._apply_terminal_font()
             mw._font_size_lbl.setText(str(mw._terminal_font_size))
 
         if "scrollback" in data:
