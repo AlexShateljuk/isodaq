@@ -35,13 +35,14 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QTabBar,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from core.connection import Connection
+from core.connection import Connection, PALETTE
 from core.macros import MacroRunner
 import core.signaling as signaling
 from core.i18n import current_language, tr
@@ -170,6 +171,7 @@ class MainWindow(QMainWindow):
         # them via properties that delegate to the active connection (SER3);
         # transport + display widgets stay here for now.
         self._active_conn = Connection(name="Main", parent=self)
+        self._connections: list[Connection] = [self._active_conn]
         self._log_colorizer_enabled: set[str] = set()
         # Send through the *active* reader so it follows a transport swap
         # (serial → network → ssh); see SerialController._reader_for().
@@ -379,6 +381,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
+        lay.addWidget(self._build_conn_bar())
         lay.addWidget(self._build_port_bar())
 
         # One terminal widget per connection, shown via a stack (SER3). The
@@ -391,6 +394,117 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._search.build_bar())
         lay.addWidget(self._build_input_bar())
         return w
+
+    def _build_conn_bar(self) -> QWidget:
+        """Connection tab strip (SER3): one tab per connection + an Add button.
+        Switching tabs switches the active connection; close ends one."""
+        bar = QWidget()
+        bar.setObjectName("connBar")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(8, 4, 8, 0)
+        lay.setSpacing(6)
+
+        self._conn_bar = QTabBar()
+        self._conn_bar.setExpanding(False)
+        self._conn_bar.setDrawBase(False)
+        self._conn_bar.setTabsClosable(True)
+        self._conn_bar.setElideMode(Qt.TextElideMode.ElideRight)
+        self._conn_bar.currentChanged.connect(self._on_conn_tab_changed)
+        self._conn_bar.tabCloseRequested.connect(self._on_conn_tab_close)
+        lay.addWidget(self._conn_bar, 1)
+
+        add_btn = QPushButton("+")
+        add_btn.setObjectName("addConnBtn")
+        add_btn.setFixedSize(26, 26)
+        add_btn.setToolTip(tr("Add a connection"))
+        add_btn.clicked.connect(self._add_connection)
+        lay.addWidget(add_btn)
+
+        self._add_conn_tab(self._active_conn)
+        return bar
+
+    # ── Connection tab strip ──────────────────────────────────────────────────
+
+    def _conn_by_id(self, cid):
+        return next((c for c in self._connections if c.id == cid), None)
+
+    def _conn_tab_index(self, cid: str) -> int:
+        for i in range(self._conn_bar.count()):
+            if self._conn_bar.tabData(i) == cid:
+                return i
+        return -1
+
+    def _add_conn_tab(self, conn) -> None:
+        idx = self._conn_bar.addTab(conn.name)
+        self._conn_bar.setTabData(idx, conn.id)
+        self._update_conn_tab(conn)
+
+    def _update_conn_tab(self, conn) -> None:
+        """Refresh a tab's connected dot + colour."""
+        idx = self._conn_tab_index(conn.id)
+        if idx < 0:
+            return
+        running = conn.reader.isRunning()
+        self._conn_bar.setTabText(idx, f"{'●' if running else '○'} {conn.name}")
+        self._conn_bar.setTabTextColor(idx, conn.color if running else C_DIM)
+
+    def _add_connection(self) -> None:
+        """Create a new connection (its own terminal + transport) and focus it."""
+        n = len(self._connections)
+        conn = Connection(name=f"Dev {n + 1}",
+                          color=PALETTE[n % len(PALETTE)], parent=self)
+        self._connections.append(conn)
+        self._add_terminal(conn)
+        self._serial.wire_reader(conn, conn.reader)   # wire its default reader
+        self._add_conn_tab(conn)
+        self._conn_bar.setCurrentIndex(self._conn_tab_index(conn.id))
+
+    def _on_conn_tab_changed(self, index: int) -> None:
+        conn = self._conn_by_id(self._conn_bar.tabData(index))
+        if conn is not None:
+            self._set_active_connection(conn)
+
+    def _on_conn_tab_close(self, index: int) -> None:
+        if len(self._connections) <= 1:
+            return   # always keep at least one connection
+        conn = self._conn_by_id(self._conn_bar.tabData(index))
+        if conn is None:
+            return
+        for r in conn.readers.values():
+            if r.isRunning():
+                r.disconnect_port()
+        self._conn_bar.removeTab(index)   # fires currentChanged → new active
+        term = self._terminals.pop(conn.id, None)
+        if term is not None:
+            self._terminal_stack.removeWidget(term)
+            term.deleteLater()
+        if conn in self._connections:
+            self._connections.remove(conn)
+        conn.deleteLater()
+
+    def _set_active_connection(self, conn) -> None:
+        if conn is self._active_conn:
+            return
+        self._active_conn = conn
+        self._terminal_stack.setCurrentWidget(self._terminals[conn.id])
+        self._refresh_conn_state()
+
+    def _refresh_conn_state(self) -> None:
+        """Reflect the active connection's reader state on the Connect button +
+        status bar (called when switching tabs)."""
+        conn = self._active_conn
+        running = conn.reader.isRunning()
+        self._conn_btn.setText(tr("Disconnect") if running else tr("Connect"))
+        self._conn_btn.setObjectName("disconnectBtn" if running else "connectBtn")
+        self._repolish(self._conn_btn)
+        if running:
+            self._sb_conn.setText(f"● {conn.name}")
+            self._sb_conn.setStyleSheet(f"color:{C_OK.name()}")
+        else:
+            self._sb_conn.setText("● " + tr("Disconnected"))
+            self._sb_conn.setStyleSheet(f"color:{C_ERR.name()}")
+        self._sb_rx.setText(f"RX: {self._fmt_bytes(conn.rx_bytes)}")
+        self._sb_tx.setText(f"TX: {self._fmt_bytes(conn.tx_bytes)}")
 
     def _add_terminal(self, conn) -> QTextEdit:
         """Create, configure and register a terminal widget for *conn*."""

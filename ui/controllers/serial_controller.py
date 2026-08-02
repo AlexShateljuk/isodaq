@@ -14,7 +14,7 @@ they are read through the module at call time (``_win.C_ERR``).
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSlot
+from PyQt6.QtCore import QEvent, QObject, Qt
 
 import ui.main_window as _win   # colour globals (runtime access only)
 from core.i18n import tr
@@ -34,14 +34,15 @@ class SerialController(QObject):
         self._ssh_pw_cache: dict[str, str] = {}  # session name → password (this run only)
 
     def wire_reader(self, conn, reader) -> None:
-        """Wire a reader's signals, capturing its owning *conn* so RX lines route
-        to that connection's pipeline (not whichever is active)."""
+        """Wire a reader's signals, capturing its owning *conn* so RX lines and
+        connection-state updates route to that connection (not whichever is
+        active)."""
         mw = self._mw
         reader.line_received.connect(
             lambda line, ts, c=conn: mw._on_conn_line(c, line, ts))
-        reader.error_occurred.connect(self.on_serial_error)
-        reader.connected.connect(self.on_connected)
-        reader.disconnected.connect(self.on_disconnected)
+        reader.error_occurred.connect(lambda msg, c=conn: self.on_serial_error(c, msg))
+        reader.connected.connect(lambda label, baud, c=conn: self.on_connected(c, label, baud))
+        reader.disconnected.connect(lambda c=conn: self.on_disconnected(c))
 
     def wire(self) -> None:
         """Wire the active connection's default (serial) reader. Network/SSH
@@ -118,30 +119,31 @@ class SerialController(QObject):
         if err:
             mw._log("ERR", f"Connection failed: {err}", _win.C_ERR)
 
-    @pyqtSlot(str, int)
-    def on_connected(self, port: str, baud: int) -> None:
+    def on_connected(self, conn, port: str, baud: int) -> None:
         mw = self._mw
         label = f"{port} · {baud}" if baud else port
-        mw._conn_btn.setText(tr("Disconnect"))
-        mw._conn_btn.setObjectName("disconnectBtn")
-        mw._repolish(mw._conn_btn)
-        mw._sb_conn.setText(f"● {label}")
-        mw._sb_conn.setStyleSheet(f"color:{_win.C_OK.name()}")
-        mw._log("SYS", f"Connected: {label}", _win.C_OK)
+        mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
+        mw._update_conn_tab(conn)              # tab state dot always
+        if conn is mw._active_conn:            # button/statusbar only for active
+            mw._conn_btn.setText(tr("Disconnect"))
+            mw._conn_btn.setObjectName("disconnectBtn")
+            mw._repolish(mw._conn_btn)
+            mw._sb_conn.setText(f"● {label}")
+            mw._sb_conn.setStyleSheet(f"color:{_win.C_OK.name()}")
 
-    @pyqtSlot()
-    def on_disconnected(self) -> None:
+    def on_disconnected(self, conn) -> None:
         mw = self._mw
-        mw._conn_btn.setText(tr("Connect"))
-        mw._conn_btn.setObjectName("connectBtn")
-        mw._repolish(mw._conn_btn)
-        mw._sb_conn.setText("● " + tr("Disconnected"))
-        mw._sb_conn.setStyleSheet(f"color:{_win.C_ERR.name()}")
-        mw._log("SYS", "Disconnected.", _win.C_SYS)
+        mw._log("SYS", "Disconnected.", _win.C_SYS, conn=conn)
+        mw._update_conn_tab(conn)
+        if conn is mw._active_conn:
+            mw._conn_btn.setText(tr("Connect"))
+            mw._conn_btn.setObjectName("connectBtn")
+            mw._repolish(mw._conn_btn)
+            mw._sb_conn.setText("● " + tr("Disconnected"))
+            mw._sb_conn.setStyleSheet(f"color:{_win.C_ERR.name()}")
 
-    @pyqtSlot(str)
-    def on_serial_error(self, msg: str) -> None:
-        self._mw._log("ERR", msg, _win.C_ERR)
+    def on_serial_error(self, conn, msg: str) -> None:
+        self._mw._log("ERR", msg, _win.C_ERR, conn=conn)
 
     # ── SSH saved sessions ─────────────────────────────────────────────────────
 
