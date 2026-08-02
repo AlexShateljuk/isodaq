@@ -155,6 +155,50 @@ def test_ssh_sessions_persist_without_password(qapp, tmp_path, monkeypatch):
         b.close()
 
 
+def test_multi_connection_isolation(qapp, tmp_path, monkeypatch):
+    """SER3: a second connection is fully isolated — its own panels, parser,
+    logger and terminal — and switching tabs swaps the right-side panel stacks."""
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+
+    w = MainWindow()
+    try:
+        a = w._active_conn
+        w._add_connection()
+        b = w._active_conn
+        assert a is not b
+        assert len(w._connections) == 2
+
+        # Every per-connection object/panel is distinct.
+        for attr in ("parser", "engine", "logger", "reader",
+                     "parse", "chart", "indicator", "trigger",
+                     "events", "analytics", "logger_panel"):
+            assert getattr(a, attr) is not getattr(b, attr), attr
+
+        # RX routes to the source connection only (own terminal + own parser).
+        a.parser.from_dict_list([{"name": "t", "prefix": "DATA:", "key": "t"}])
+        b.parser.from_dict_list([{"name": "t", "prefix": "DATA:", "key": "t"}])
+        w._on_conn_line(a, "DATA: t=1.0", "00:00:00.000")
+        w._on_conn_line(b, "DATA: t=2.0", "00:00:01.000")
+        assert a.last_parsed["t"] == 1.0 and b.last_parsed["t"] == 2.0
+        assert "t=1.0" in w._terminals[a.id].toPlainText()
+        assert "t=1.0" not in w._terminals[b.id].toPlainText()
+
+        # Switching active swaps the terminal + every right-side panel stack.
+        w._conn_bar.setCurrentIndex(w._conn_tab_index(a.id))
+        assert w._active_conn is a
+        assert w._terminal is w._terminals[a.id]
+        assert w._chart_stack.currentWidget() is a.chart
+        assert w._events_stack.currentWidget() is a.events
+        assert w._trigger_stack.currentWidget() is a.trigger
+        assert w._parse_panel is a.parse   # property follows active
+    finally:
+        w.close()
+
+
 def test_ssh_legacy_single_session_migrates(qapp, tmp_path, monkeypatch):
     """A pre-sessions config ("ssh": {...}) is migrated to one saved session."""
     import json

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multiple simultaneous connections (SER3)** — monitor several devices at once.
+  A connection tab strip (with an Add button) sits above the terminal; each
+  connection is fully independent — its own transport (serial/network/SSH),
+  terminal, data logger, parser + channels, chart, indicators, triggers, events
+  and analytics. Switching tabs swaps the whole right-side view to that
+  connection; the command line and macros target the active connection.
+  **Triggers fire on every connection** (events + Telegram/webhook notifications
+  even for background tabs); the visual flash lands in that connection's own
+  terminal. Built on a new `core/connection.py` `Connection` model with
+  MainWindow delegating to the active connection; see `SER3_REFACTOR.md`.
+
 - **Network & SSH transports (SER1)** — the port bar gains a **transport
   selector** (Serial / Network / SSH) so the terminal can attach to more than a
   local COM/tty port:

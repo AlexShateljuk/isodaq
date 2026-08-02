@@ -33,67 +33,73 @@ class TriggerController(QObject):
         super().__init__(mw)
         self._mw = mw
 
-    def on_match_threadsafe(self, trigger: Trigger, line: str, ts: str) -> None:
-        """Called from the serial reader thread — marshal onto the GUI thread."""
-        line_id = self._mw._current_rx_line_id   # id of the terminal line that matched
+    def on_match_threadsafe(self, conn, trigger: Trigger, line: str, ts: str) -> None:
+        """Called from a connection's reader thread — marshal onto the GUI thread,
+        carrying the owning *conn* so the match routes to that connection."""
+        line_id = conn.current_rx_line_id   # id of the terminal line that matched
         QMetaObject.invokeMethod(
             self, "_on_trigger_match_gui",
             Qt.ConnectionType.QueuedConnection,
+            Q_ARG(object, conn),
             Q_ARG(object, trigger),
             Q_ARG(str, line),
             Q_ARG(str, ts),
             Q_ARG(int, line_id),
         )
 
-    @pyqtSlot(object, str, str, int)
-    def _on_trigger_match_gui(self, trigger: Trigger, line: str, ts: str,
+    @pyqtSlot(object, object, str, str, int)
+    def _on_trigger_match_gui(self, conn, trigger: Trigger, line: str, ts: str,
                               line_id: int = -1):
-        """Runs in GUI thread. Handles all trigger actions."""
+        """Runs in GUI thread. Handles all trigger actions for *conn*. Events,
+        logging and notifications fire regardless of which tab is active; the
+        flash goes into the matching connection's own terminal."""
         mw = self._mw
-        # ── Flash: highlighted banner in terminal ─────────────────────────────
+        term = mw._terminals[conn.id]
+        # ── Flash: highlighted banner in the connection's terminal ────────────
         if trigger.action_flash:
-            cursor = mw._terminal.textCursor()
+            cursor = term.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             fmt = QTextCharFormat()
             fmt.setBackground(QColor(trigger.color).darker(280))
             fmt.setForeground(QColor(trigger.color))
             cursor.insertText(f"\n⚡ TRIGGER [{trigger.name}]: {line}\n", fmt)
-            if mw._chk_auto.isChecked():
-                mw._terminal.ensureCursorVisible()
+            if conn is mw._active_conn and mw._chk_auto.isChecked():
+                term.ensureCursorVisible()
 
-        # ── Log: write trigger marker to active sinks ─────────────────────────
+        # ── Log: write trigger marker to this connection's sinks ──────────────
         if trigger.action_log:
-            mw._logger.write_trigger_event(trigger.name, line, ts)
+            conn.logger.write_trigger_event(trigger.name, line, ts)
 
         # ── Sound: system beep ────────────────────────────────────────────────
         if trigger.action_sound:
             QApplication.beep()
 
-        # ── Pause log: stop active logging session ────────────────────────────
-        if trigger.action_pause and mw._logger.active:
-            mw._logger.stop()
-            mw._logger_panel._btn.setText("▶  Start Log")
-            mw._logger_panel._btn.setObjectName("start")
-            mw._repolish(mw._logger_panel._btn)
-            mw._log("SYS", f"[TRIGGER:{trigger.name}] Log paused.", _win.C_SYS)
+        # ── Pause log: stop this connection's logging session ─────────────────
+        if trigger.action_pause and conn.logger.active:
+            conn.logger.stop()
+            conn.logger_panel._btn.setText("▶  Start Log")
+            conn.logger_panel._btn.setObjectName("start")
+            mw._repolish(conn.logger_panel._btn)
+            mw._log("SYS", f"[TRIGGER:{trigger.name}] Log paused.", _win.C_SYS, conn=conn)
 
-        # ── Resume log: restart logging session ───────────────────────────────
-        if trigger.action_resume and not mw._logger.active:
-            mw._logger.start()
-            mw._logger_panel._btn.setText("⏹  Stop Log")
-            mw._logger_panel._btn.setObjectName("stop")
-            mw._repolish(mw._logger_panel._btn)
-            mw._log("SYS", f"[TRIGGER:{trigger.name}] Log resumed.", _win.C_OK)
+        # ── Resume log: restart this connection's logging session ─────────────
+        if trigger.action_resume and not conn.logger.active:
+            conn.logger.start()
+            conn.logger_panel._btn.setText("⏹  Stop Log")
+            conn.logger_panel._btn.setObjectName("stop")
+            mw._repolish(conn.logger_panel._btn)
+            mw._log("SYS", f"[TRIGGER:{trigger.name}] Log resumed.", _win.C_OK, conn=conn)
 
-        mw._trigger_panel.refresh_hits()
-        mw._analytics_panel.record_hit(trigger.name)
+        conn.trigger.refresh_hits()
+        conn.analytics.record_hit(trigger.name)
 
-        # Always log to trigger events panel (double-click a row to jump — F2)
-        mw._trigger_events_panel.add_event(ts, trigger.name, line,
-                                           dict(mw._last_parsed), line_id)
+        # Always log to the connection's trigger events panel (F2 double-click)
+        conn.events.add_event(ts, trigger.name, line,
+                              dict(conn.last_parsed), line_id)
 
-    def sync_analytics(self) -> None:
-        self._mw._analytics_panel.sync_triggers(self._mw._engine.get_triggers())
+    def sync_analytics(self, conn=None) -> None:
+        conn = conn or self._mw._active_conn
+        conn.analytics.sync_triggers(conn.engine.get_triggers())
 
     # ── Save / load trigger files ────────────────────────────────────────────────
 

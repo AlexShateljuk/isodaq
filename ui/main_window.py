@@ -265,6 +265,22 @@ class MainWindow(QMainWindow):
     def _indicator_panel(self):
         return self._active_conn.indicator
 
+    @property
+    def _trigger_panel(self):
+        return self._active_conn.trigger
+
+    @property
+    def _trigger_events_panel(self):
+        return self._active_conn.events
+
+    @property
+    def _analytics_panel(self):
+        return self._active_conn.analytics
+
+    @property
+    def _logger_panel(self):
+        return self._active_conn.logger_panel
+
     # Per-connection scalars — getter+setter so existing `+=`/`=` call sites
     # (RX byte counter, TX byte counter, line-identity in _log) keep working
     # while the state lives on the active connection.
@@ -486,6 +502,8 @@ class MainWindow(QMainWindow):
         for r in conn.readers.values():
             if r.isRunning():
                 r.disconnect_port()
+        if conn.logger.active:
+            conn.logger.stop()
         self._conn_bar.removeTab(index)   # fires currentChanged → new active
         term = self._terminals.pop(conn.id, None)
         if term is not None:
@@ -493,7 +511,11 @@ class MainWindow(QMainWindow):
             term.deleteLater()
         for stack, panel in ((self._parse_stack, conn.parse),
                              (self._chart_stack, conn.chart),
-                             (self._indicator_stack, conn.indicator)):
+                             (self._indicator_stack, conn.indicator),
+                             (self._trigger_stack, conn.trigger),
+                             (self._logger_stack, conn.logger_panel),
+                             (self._events_stack, conn.events),
+                             (self._analytics_stack, conn.analytics)):
             stack.removeWidget(panel)
             panel.deleteLater()
         if conn in self._connections:
@@ -509,6 +531,10 @@ class MainWindow(QMainWindow):
         self._chart_stack.setCurrentWidget(conn.chart)
         self._indicator_stack.setCurrentWidget(conn.indicator)
         self._parse_stack.setCurrentWidget(conn.parse)
+        self._trigger_stack.setCurrentWidget(conn.trigger)
+        self._logger_stack.setCurrentWidget(conn.logger_panel)
+        self._events_stack.setCurrentWidget(conn.events)
+        self._analytics_stack.setCurrentWidget(conn.analytics)
         self._refresh_conn_state()
 
     def _refresh_conn_state(self) -> None:
@@ -792,12 +818,11 @@ class MainWindow(QMainWindow):
         self._indicator_stack = QStackedWidget()
         self._tabs.addTab(self._indicator_stack, tr("Indicators"))
 
-        self._trigger_events_panel = TriggerEventsPanel()
-        self._trigger_events_panel.jump_to_line.connect(self._search.jump_to_line)
-        self._tabs.addTab(self._trigger_events_panel, tr("Events"))
+        self._events_stack = QStackedWidget()
+        self._tabs.addTab(self._events_stack, tr("Events"))
 
-        self._analytics_panel = AnalyticsPanel()
-        self._tabs.addTab(self._analytics_panel, tr("Analytics"))
+        self._analytics_stack = QStackedWidget()
+        self._tabs.addTab(self._analytics_stack, tr("Analytics"))
 
         # Pop-out button in the tab-bar corner
         _float_btn = QPushButton("⤢")
@@ -816,20 +841,39 @@ class MainWindow(QMainWindow):
         return w
 
     def _make_display_panels(self, conn) -> None:
-        """Create a connection's own Parsing/Graphs/Indicators panels and add
-        them to the shared stacks (SER3). Channel toggles route to this
-        connection's chart/indicator via captured lambdas."""
+        """Create a connection's own display panels (Parsing / Graphs /
+        Indicators / Triggers / Events / Analytics / Logger) and add them to the
+        shared stacks (SER3). All signals are wired with the owning connection
+        captured, so each connection's data stays independent."""
         conn.parse = ParsePanel(conn.parser)
         conn.chart = ChartPanel()
         conn.chart.apply_theme(theme_colors(self._current_theme))
         conn.indicator = IndicatorPanel()
+        conn.trigger = TriggerPanel(conn.engine)
+        conn.events = TriggerEventsPanel()
+        conn.analytics = AnalyticsPanel()
+        conn.analytics.apply_theme(theme_colors(self._current_theme))
+        conn.logger_panel = LoggerPanel(conn.logger)
+
         conn.parse.channel_chart_req.connect(
             lambda name, en, c=conn: self._on_channel_chart_req(c, name, en))
         conn.parse.channel_indicator_req.connect(
             lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
+        conn.events.jump_to_line.connect(self._search.jump_to_line)
+        conn.trigger.trigger_changed.connect(
+            lambda c=conn: self._triggers.sync_analytics(c))
+        # Per-connection triggers "fire always" — each engine's matches route to
+        # this connection (events/notifications regardless of which tab is active).
+        conn.engine.on_match(
+            lambda trig, line, ts, c=conn: self._triggers.on_match_threadsafe(c, trig, line, ts))
+
         self._parse_stack.addWidget(conn.parse)
         self._chart_stack.addWidget(conn.chart)
         self._indicator_stack.addWidget(conn.indicator)
+        self._trigger_stack.addWidget(conn.trigger)
+        self._logger_stack.addWidget(conn.logger_panel)
+        self._events_stack.addWidget(conn.events)
+        self._analytics_stack.addWidget(conn.analytics)
 
     def _build_sidebar(self) -> QWidget:
         """
@@ -886,24 +930,26 @@ class MainWindow(QMainWindow):
         _cs("parsing", tr("Parsing"), self._parse_stack, extras=[_p_add], collapsed=True)
 
         # ── Data Logger ───────────────────────────────────────────────────────
-        self._logger_panel = LoggerPanel(self._logger)
+        # Per-connection (SER3): each connection logs to its own files.
+        self._logger_stack = QStackedWidget()
         _l_folder = QPushButton("📂")
         _l_folder.setFixedSize(22, 20)
         _l_folder.setToolTip(tr("Open log folder"))
         _l_folder.setStyleSheet("font-size:11px;padding:0;")
-        _l_folder.clicked.connect(self._logger_panel._open_folder)
-        _cs("logger", tr("Data Logger"), self._logger_panel, extras=[_l_folder])
+        _l_folder.clicked.connect(lambda: self._logger_panel._open_folder())
+        _cs("logger", tr("Data Logger"), self._logger_stack, extras=[_l_folder])
 
         # ── Triggers ──────────────────────────────────────────────────────────
-        self._trigger_panel = TriggerPanel(self._engine)
+        # Per-connection (SER3): each connection has its own trigger set + hits.
+        self._trigger_stack = QStackedWidget()
         _t_reset = QPushButton(tr("Reset"))
         _t_reset.setFixedHeight(20)
-        _t_reset.clicked.connect(self._trigger_panel._clear_hits)
+        _t_reset.clicked.connect(lambda: self._trigger_panel._clear_hits())
         _t_add = QPushButton(tr("+ Add"))
         _t_add.setObjectName("add")
         _t_add.setFixedHeight(20)
         _t_add.clicked.connect(lambda: self._trigger_panel._open_editor())
-        _cs("triggers", tr("Triggers"), self._trigger_panel, extras=[_t_reset, _t_add])
+        _cs("triggers", tr("Triggers"), self._trigger_stack, extras=[_t_reset, _t_add])
 
         # ── Custom command ────────────────────────────────────────────────────
         _cs("custom", tr("Custom command"), self._build_custom_cmd(), collapsed=True)
@@ -978,13 +1024,9 @@ class MainWindow(QMainWindow):
         # capturing its owning connection so RX routes correctly (SER3).
         self._serial.wire()
 
-        # Trigger matches → GUI highlight + log
-        self._engine.on_match(self._triggers.on_match_threadsafe)
-
-        # Trigger list changes → sync analytics panel
-        self._trigger_panel.trigger_changed.connect(self._triggers.sync_analytics)
-
-        # Parse → chart/indicator wiring is per-connection (see _make_display_panels).
+        # Trigger matches (per-connection engine.on_match), trigger_changed →
+        # analytics, parse → chart/indicator, and events → jump are all wired
+        # per connection in _make_display_panels (SER3).
 
         # Macro runner → terminal log
         self._macro_runner.step_started.connect(
@@ -1029,9 +1071,9 @@ class MainWindow(QMainWindow):
         self._log("RX", line, C_RX, ts, text_color=log_color, conn=conn)
         conn.current_rx_line_id = conn.last_rx_line_id
 
-        # Check triggers (fast path in GUI thread — engine is thread-safe)
-        if is_active:
-            conn.engine.check(line, ts)
+        # Check triggers on the source connection's own engine — "fire always"
+        # (events + notifications happen regardless of which tab is active).
+        conn.engine.check(line, ts)
 
         # Parse numeric channels → update this connection's own panels (they are
         # per-connection now, so background connections keep accumulating too).
@@ -1076,12 +1118,10 @@ class MainWindow(QMainWindow):
     def _on_channel_chart_req(self, conn, name: str, enable: bool) -> None:
         if enable:
             conn.chart.add_channel(name)
-            if conn is self._active_conn:
-                self._trigger_events_panel.register_channel(name)
+            conn.events.register_channel(name)
         else:
             conn.chart.remove_channel(name)
-            if conn is self._active_conn:
-                self._trigger_events_panel.unregister_channel(name)
+            conn.events.unregister_channel(name)
 
     def _on_channel_indicator_req(self, conn, name: str, enable: bool) -> None:
         if enable:
@@ -1115,7 +1155,8 @@ class MainWindow(QMainWindow):
         for conn in self._connections:
             if getattr(conn, "chart", None) is not None:
                 conn.chart.apply_theme(c)
-        self._analytics_panel.apply_theme(c)
+            if getattr(conn, "analytics", None) is not None:
+                conn.analytics.apply_theme(c)
         set_current_theme(theme)
         tint_titlebar(self)
         for win in self._float_wins:
