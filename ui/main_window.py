@@ -253,6 +253,18 @@ class MainWindow(QMainWindow):
         """The active connection's terminal widget."""
         return self._terminals[self._active_conn.id]
 
+    @property
+    def _parse_panel(self):
+        return self._active_conn.parse
+
+    @property
+    def _chart_panel(self):
+        return self._active_conn.chart
+
+    @property
+    def _indicator_panel(self):
+        return self._active_conn.indicator
+
     # Per-connection scalars — getter+setter so existing `+=`/`=` call sites
     # (RX byte counter, TX byte counter, line-identity in _log) keep working
     # while the state lives on the active connection.
@@ -455,6 +467,7 @@ class MainWindow(QMainWindow):
                           color=PALETTE[n % len(PALETTE)], parent=self)
         self._connections.append(conn)
         self._add_terminal(conn)
+        self._make_display_panels(conn)               # its own Parsing/Graphs/Indicators
         self._serial.wire_reader(conn, conn.reader)   # wire its default reader
         self._add_conn_tab(conn)
         self._conn_bar.setCurrentIndex(self._conn_tab_index(conn.id))
@@ -478,6 +491,11 @@ class MainWindow(QMainWindow):
         if term is not None:
             self._terminal_stack.removeWidget(term)
             term.deleteLater()
+        for stack, panel in ((self._parse_stack, conn.parse),
+                             (self._chart_stack, conn.chart),
+                             (self._indicator_stack, conn.indicator)):
+            stack.removeWidget(panel)
+            panel.deleteLater()
         if conn in self._connections:
             self._connections.remove(conn)
         conn.deleteLater()
@@ -487,6 +505,10 @@ class MainWindow(QMainWindow):
             return
         self._active_conn = conn
         self._terminal_stack.setCurrentWidget(self._terminals[conn.id])
+        # Swap the per-connection right-side panels to this connection's.
+        self._chart_stack.setCurrentWidget(conn.chart)
+        self._indicator_stack.setCurrentWidget(conn.indicator)
+        self._parse_stack.setCurrentWidget(conn.parse)
         self._refresh_conn_state()
 
     def _refresh_conn_state(self) -> None:
@@ -762,11 +784,13 @@ class MainWindow(QMainWindow):
         self._tabs.tabBar().setDrawBase(False)   # no native base line under the tabs
         lay.addWidget(self._tabs)
 
-        self._chart_panel = ChartPanel()
-        self._tabs.addTab(self._chart_panel, tr("Graphs"))
+        # Graphs + Indicators are per-connection (SER3): each tab holds a stack
+        # of that connection's panel; switching connections swaps the page.
+        self._chart_stack = QStackedWidget()
+        self._tabs.addTab(self._chart_stack, tr("Graphs"))
 
-        self._indicator_panel = IndicatorPanel()
-        self._tabs.addTab(self._indicator_panel, tr("Indicators"))
+        self._indicator_stack = QStackedWidget()
+        self._tabs.addTab(self._indicator_stack, tr("Indicators"))
 
         self._trigger_events_panel = TriggerEventsPanel()
         self._trigger_events_panel.jump_to_line.connect(self._search.jump_to_line)
@@ -787,7 +811,25 @@ class MainWindow(QMainWindow):
         self._tabs.setCornerWidget(_float_btn)
 
         lay.addWidget(self._build_sidebar())
+        # Now that all three stacks exist, build the active connection's panels.
+        self._make_display_panels(self._active_conn)
         return w
+
+    def _make_display_panels(self, conn) -> None:
+        """Create a connection's own Parsing/Graphs/Indicators panels and add
+        them to the shared stacks (SER3). Channel toggles route to this
+        connection's chart/indicator via captured lambdas."""
+        conn.parse = ParsePanel(conn.parser)
+        conn.chart = ChartPanel()
+        conn.chart.apply_theme(theme_colors(self._current_theme))
+        conn.indicator = IndicatorPanel()
+        conn.parse.channel_chart_req.connect(
+            lambda name, en, c=conn: self._on_channel_chart_req(c, name, en))
+        conn.parse.channel_indicator_req.connect(
+            lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
+        self._parse_stack.addWidget(conn.parse)
+        self._chart_stack.addWidget(conn.chart)
+        self._indicator_stack.addWidget(conn.indicator)
 
     def _build_sidebar(self) -> QWidget:
         """
@@ -834,12 +876,14 @@ class MainWindow(QMainWindow):
         _cs("macros", tr("Macros"), self._macro_panel, extras=[_m_file, _m_add])
 
         # ── Parsing ───────────────────────────────────────────────────────────
-        self._parse_panel = ParsePanel(self._parser, parent=inner)
+        # Per-connection parse panels live in a stack (SER3); the active one is
+        # exposed as self._parse_panel. Populated by _make_display_panels.
+        self._parse_stack = QStackedWidget()
         _p_add = QPushButton(tr("+ Add"))
         _p_add.setObjectName("add")
         _p_add.setFixedHeight(20)
         _p_add.clicked.connect(lambda: self._parse_panel.open_editor())
-        _cs("parsing", tr("Parsing"), self._parse_panel, extras=[_p_add], collapsed=True)
+        _cs("parsing", tr("Parsing"), self._parse_stack, extras=[_p_add], collapsed=True)
 
         # ── Data Logger ───────────────────────────────────────────────────────
         self._logger_panel = LoggerPanel(self._logger)
@@ -940,9 +984,7 @@ class MainWindow(QMainWindow):
         # Trigger list changes → sync analytics panel
         self._trigger_panel.trigger_changed.connect(self._triggers.sync_analytics)
 
-        # Parse panel → chart / indicator panels
-        self._parse_panel.channel_chart_req.connect(self._on_channel_chart_req)
-        self._parse_panel.channel_indicator_req.connect(self._on_channel_indicator_req)
+        # Parse → chart/indicator wiring is per-connection (see _make_display_panels).
 
         # Macro runner → terminal log
         self._macro_runner.step_started.connect(
@@ -991,14 +1033,14 @@ class MainWindow(QMainWindow):
         if is_active:
             conn.engine.check(line, ts)
 
-        # Parse numeric channels → update conn state (+ live panels if active)
+        # Parse numeric channels → update this connection's own panels (they are
+        # per-connection now, so background connections keep accumulating too).
         parsed = conn.parser.parse(line)
         if parsed:
             conn.last_parsed.update(parsed)
-            if is_active:
-                self._parse_panel.update_values(parsed)
-                self._chart_panel.update(parsed)
-                self._indicator_panel.update(parsed)
+            conn.parse.update_values(parsed)
+            conn.chart.update(parsed)
+            conn.indicator.update(parsed)
 
         if is_active:
             # Feed macro runner (for wait-for pattern matching)
@@ -1031,20 +1073,21 @@ class MainWindow(QMainWindow):
         self._float_wins.append(win)
         win.show()
 
-    def _on_channel_chart_req(self, name: str, enable: bool) -> None:
+    def _on_channel_chart_req(self, conn, name: str, enable: bool) -> None:
         if enable:
-            self._chart_panel.add_channel(name)
-            self._trigger_events_panel.register_channel(name)
+            conn.chart.add_channel(name)
+            if conn is self._active_conn:
+                self._trigger_events_panel.register_channel(name)
         else:
-            self._chart_panel.remove_channel(name)
-            self._trigger_events_panel.unregister_channel(name)
+            conn.chart.remove_channel(name)
+            if conn is self._active_conn:
+                self._trigger_events_panel.unregister_channel(name)
 
-    @pyqtSlot(str, bool)
-    def _on_channel_indicator_req(self, name: str, enable: bool) -> None:
+    def _on_channel_indicator_req(self, conn, name: str, enable: bool) -> None:
         if enable:
-            self._indicator_panel.add_indicator(name)
+            conn.indicator.add_indicator(name)
         else:
-            self._indicator_panel.remove_indicator(name)
+            conn.indicator.remove_indicator(name)
 
     # ── Trigger save/load ─────────────────────────────────────────────────────
 
@@ -1069,7 +1112,9 @@ class MainWindow(QMainWindow):
         if self._tabs.cornerWidget():
             self._repolish(self._tabs.cornerWidget())
         self._tabs.update()
-        self._chart_panel.apply_theme(c)
+        for conn in self._connections:
+            if getattr(conn, "chart", None) is not None:
+                conn.chart.apply_theme(c)
         self._analytics_panel.apply_theme(c)
         set_current_theme(theme)
         tint_titlebar(self)
