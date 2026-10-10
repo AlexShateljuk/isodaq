@@ -374,18 +374,18 @@ class MainWindow(QMainWindow):
 
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(3)
-        self._dock_left = ToolDock()
+        self._dock_left = ToolDock("left")
         self._main_splitter.addWidget(self._dock_left)
         self._main_splitter.addWidget(self._build_left())
-        self._dock_right = ToolDock()
+        self._dock_right = ToolDock("right")
         self._main_splitter.addWidget(self._dock_right)
-        self._main_splitter.setSizes([220, 700, 380])
+        self._main_splitter.setSizes([200, 700, 330])
         self._main_splitter.setStretchFactor(1, 1)
 
         self._vert_splitter.addWidget(self._main_splitter)
-        self._dock_bottom = ToolDock()
+        self._dock_bottom = ToolDock("bottom")
         self._vert_splitter.addWidget(self._dock_bottom)
-        self._vert_splitter.setSizes([520, 200])
+        self._vert_splitter.setSizes([560, 170])
         self._vert_splitter.setStretchFactor(0, 1)
         body_lay.addWidget(self._vert_splitter, 1)
 
@@ -639,8 +639,8 @@ class MainWindow(QMainWindow):
         # Fixed vertical policy: the root layout must not stretch the toolbar.
         bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(8, 4, 8, 4)
-        lay.setSpacing(5)
+        lay.setContentsMargins(8, 3, 8, 3)
+        lay.setSpacing(4)
 
         self._transport_combo = QComboBox()
         self._transport_combo.addItems(["Serial", "Network", "SSH"])
@@ -883,7 +883,7 @@ class MainWindow(QMainWindow):
         cr.addWidget(self._cmd_edit)
         self._eol_combo = QComboBox()
         self._eol_combo.addItems(["\\r\\n","\\n","\\r","None"])
-        self._eol_combo.setFixedWidth(54)
+        self._eol_combo.setFixedWidth(66)
         cr.addWidget(self._eol_combo)
         self._send_btn = QPushButton(tr("Send"))
         self._send_btn.setObjectName("sendBtn")

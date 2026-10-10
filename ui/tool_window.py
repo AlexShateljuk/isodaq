@@ -79,7 +79,7 @@ class StripeBar(QWidget):
     def __init__(self, side: str = "left", parent=None):
         super().__init__(parent)
         self._side = side
-        self.setObjectName("stripeBar")
+        self.setObjectName(f"stripeBar{side.capitalize()}")
         self._buttons: dict[str, QPushButton] = {}
 
         vertical = side in ("left", "right")
@@ -129,9 +129,11 @@ class ToolDock(QWidget):
     #: emitted when the user closes the dock via its header button
     closed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, side: str = "right", parent=None):
         super().__init__(parent)
-        self.setObjectName("toolDock")
+        self._side = side
+        self.setObjectName(f"toolDock{side.capitalize()}")
+        self.setProperty("dock", True)      # shared QSS hook (density rules)
         self._tools: dict[str, QWidget] = {}
         self._titles: dict[str, str] = {}
         self._actions: dict[str, list[QWidget]] = {}

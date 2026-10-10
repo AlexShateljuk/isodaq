@@ -110,7 +110,7 @@ QMainWindow, QDialog, QWidget {{
 }}
 QLabel {{ background: transparent; }}
 QCheckBox {{ background: transparent; }}
-QSplitter::handle {{ background: {c['splitter']}; }}
+QSplitter::handle {{ background: {c['border2']}; }}
 QSplitter::handle:hover {{ background: {c['splitter_h']}; }}
 
 /* ── Menubar ────────────────────────────────────────────── */
@@ -161,7 +161,7 @@ QTabBar::tab:hover:!selected {{ color: {c['fg_mid']}; background: {c['bg3']}; }}
 QTabBar#connTabs {{ background: transparent; }}
 QTabBar#connTabs::tab {{
     background: {c['bg']}; color: {c['fg_dim']};
-    padding: 5px 6px 5px 11px; margin-right: 3px;
+    padding: 3px 5px 3px 9px; margin-right: 2px;
     border: 1px solid {c['border']};
     border-top-left-radius: 5px; border-top-right-radius: 5px;
     border-bottom: 2px solid transparent;
@@ -185,8 +185,8 @@ QPushButton#addConnBtn {{
 QPushButton#addConnBtn:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
 
 /* Compact connection toolbar (one row) */
-QWidget#portBar {{ background: {c['bg2']}; border-bottom: 1px solid {c['border']}; }}
-QWidget#portBar QComboBox, QWidget#portBar QPushButton {{ min-height: 22px; }}
+QWidget#portBar {{ background: {c['bg2']}; border-bottom: 1px solid {c['border2']}; }}
+QWidget#portBar QComboBox, QWidget#portBar QPushButton {{ min-height: 20px; max-height: 22px; }}
 QPushButton#moreBtn {{
     background: transparent; border: 1px solid {c['border']}; border-radius: 3px;
     color: {c['fg_mid']}; font-size: 14px; padding: 0;
@@ -195,18 +195,36 @@ QPushButton#moreBtn:hover {{ color: {c['accent']}; border-color: {c['accent_brd'
 QFrame#sep {{ border: none; border-top: 1px solid {c['border']}; max-height: 1px; }}
 
 /* ── Tool windows: edge stripes + docks (IntelliJ pattern) ───────────── */
-QWidget#stripeBar {{ background: {c['bg2']}; }}
+/* Every region is delineated by a 1px divider on its inner edge, so the
+   stripes / docks / editor read as distinct panes rather than one surface. */
+QWidget#stripeBarLeft {{
+    background: {c['bg2']}; border-right: 1px solid {c['border2']};
+}}
+QWidget#stripeBarRight {{
+    background: {c['bg2']}; border-left: 1px solid {c['border2']};
+}}
+QWidget#stripeBarBottom {{
+    background: {c['bg2']}; border-top: 1px solid {c['border2']};
+}}
+QWidget#toolDockLeft {{
+    background: {c['bg2']}; border-right: 1px solid {c['border2']};
+}}
+QWidget#toolDockRight {{
+    background: {c['bg2']}; border-left: 1px solid {c['border2']};
+}}
+QWidget#toolDockBottom {{
+    background: {c['bg2']}; border-top: 1px solid {c['border2']};
+}}
 QPushButton#stripeBtn {{
     background: transparent; border: 1px solid transparent; border-radius: 3px;
     color: {c['fg_mid']}; font-size: 10px; letter-spacing: .04em;
-    padding: 6px 4px;
+    padding: 4px 3px;
 }}
 QPushButton#stripeBtn:hover {{ color: {c['fg']}; background: {c['bg3']}; }}
 QPushButton#stripeBtn:checked {{
     color: {c['accent']}; background: {c['accent_bg']};
     border-color: {c['accent_brd']};
 }}
-QWidget#toolDock {{ background: {c['bg2']}; }}
 QWidget#toolDockHeader {{
     background: {c['bg2']}; border-bottom: 1px solid {c['border']};
 }}
@@ -226,13 +244,13 @@ QPushButton#iconAct:hover {{ color: {c['accent']}; border-color: {c['accent_brd'
 QPushButton#deviceRow {{ background: transparent; font-size: 11px; }}
 
 /* Density: IDE-scale rows inside tool windows (was desktop-app spacing) */
-QWidget#toolDock QPushButton {{ padding: 3px 9px; font-size: 11px; }}
-QWidget#toolDock QComboBox {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
-QWidget#toolDock QLineEdit {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
-QWidget#toolDock QCheckBox {{ font-size: 11px; }}
-QWidget#toolDock QLabel {{ font-size: 11px; }}
-QWidget#toolDock QTableWidget {{ font-size: 11px; }}
-QWidget#toolDock QHeaderView::section {{ padding: 3px 6px; font-size: 10px; }}
+QWidget[dock="true"] QPushButton {{ padding: 3px 9px; font-size: 11px; }}
+QWidget[dock="true"] QComboBox {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
+QWidget[dock="true"] QLineEdit {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
+QWidget[dock="true"] QCheckBox {{ font-size: 11px; }}
+QWidget[dock="true"] QLabel {{ font-size: 11px; }}
+QWidget[dock="true"] QTableWidget {{ font-size: 11px; }}
+QWidget[dock="true"] QHeaderView::section {{ padding: 3px 6px; font-size: 10px; }}
 QPushButton#deviceRow:hover {{ background: {c['bg3']}; }}
 QPushButton#deviceRow:checked {{ background: {c['accent_bg']}; }}
 
@@ -253,12 +271,12 @@ QScrollArea {{ border: none; background: transparent; }}
 QComboBox {{
     background: {c['bg3']};
     border: 1px solid {c['border']};
-    border-radius: 5px;
-    padding: 3px 26px 3px 8px;
+    border-radius: 4px;
+    padding: 2px 24px 2px 7px;
     color: {c['fg']};
     font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
     font-size: 11px;
-    min-height: 24px;
+    min-height: 20px;
     selection-background-color: {c['bg4']};
 }}
 QComboBox:focus {{ border-color: {c['accent']}; }}
@@ -266,7 +284,7 @@ QComboBox:hover {{ border-color: {c['border2']}; }}
 QComboBox::drop-down {{
     subcontrol-origin: padding;
     subcontrol-position: center right;
-    width: 22px;
+    width: 18px;
     border-left: 1px solid {c['border']};
     border-top-right-radius: 4px;
     border-bottom-right-radius: 4px;
@@ -308,8 +326,8 @@ QSpinBox::up-button, QSpinBox::down-button {{
 /* ── Buttons ────────────────────────────────────────────── */
 QPushButton {{
     background: {c['bg3']}; border: 1px solid {c['border']};
-    border-radius: 5px; padding: 4px 12px; color: {c['fg_mid']};
-    font-size: 12px;
+    border-radius: 4px; padding: 3px 10px; color: {c['fg_mid']};
+    font-size: 11px;
 }}
 QPushButton:hover {{ border-color: {c['accent']}; color: {c['accent']}; background: {c['bg4']}; }}
 QPushButton:pressed {{ background: {c['bg4']}; border-color: {c['accent']}; }}
