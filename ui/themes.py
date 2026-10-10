@@ -194,6 +194,39 @@ QPushButton#moreBtn {{
 QPushButton#moreBtn:hover {{ color: {c['accent']}; border-color: {c['accent_brd']}; }}
 QFrame#sep {{ border: none; border-top: 1px solid {c['border']}; max-height: 1px; }}
 
+/* ── Tool windows: edge stripes + docks (IntelliJ pattern) ───────────── */
+QWidget#stripeBar {{ background: {c['bg2']}; }}
+QPushButton#stripeBtn {{
+    background: transparent; border: 1px solid transparent; border-radius: 3px;
+    color: {c['fg_mid']}; font-size: 10px; letter-spacing: .04em;
+    padding: 6px 4px;
+}}
+QPushButton#stripeBtn:hover {{ color: {c['fg']}; background: {c['bg3']}; }}
+QPushButton#stripeBtn:checked {{
+    color: {c['accent']}; background: {c['accent_bg']};
+    border-color: {c['accent_brd']};
+}}
+QWidget#toolDock {{ background: {c['bg2']}; }}
+QWidget#toolDockHeader {{
+    background: {c['bg2']}; border-bottom: 1px solid {c['border']};
+}}
+QLabel#toolDockTitle {{
+    color: {c['fg_mid']}; font-size: 10px; font-weight: 600; letter-spacing: .09em;
+}}
+QPushButton#toolDockClose {{
+    border: none; background: transparent; color: {c['fg_dim']};
+    font-size: 13px; font-weight: 600; padding: 0; border-radius: 3px;
+}}
+QPushButton#toolDockClose:hover {{ color: {c['err']}; background: {c['bg3']}; }}
+QPushButton#iconAct {{
+    border: 1px solid {c['border']}; border-radius: 3px; background: {c['bg3']};
+    color: {c['fg_mid']}; font-size: 10px; padding: 1px 6px;
+}}
+QPushButton#iconAct:hover {{ color: {c['accent']}; border-color: {c['accent_brd']}; }}
+QPushButton#deviceRow {{ background: transparent; font-size: 11px; }}
+QPushButton#deviceRow:hover {{ background: {c['bg3']}; }}
+QPushButton#deviceRow:checked {{ background: {c['accent_bg']}; }}
+
 /* ── Scrollbars ─────────────────────────────────────────── */
 QScrollBar:vertical {{ background: transparent; width: 6px; margin: 2px; }}
 QScrollBar::handle:vertical {{

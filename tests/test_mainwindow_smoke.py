@@ -77,10 +77,10 @@ def test_mainwindow_ukrainian_locale(qapp, tmp_path, monkeypatch):
     try:
         w = MainWindow()
         try:
-            # Buttons, tabs and the status bar resolve through the uk catalog.
+            # Buttons, tool stripes and the status bar resolve through the uk catalog.
             assert w._conn_btn.text() == i18n.tr("Connect") == "Підключити"
             assert w._send_btn.text() == "Надіслати"
-            assert w._tabs.tabText(0) == "Графіки"
+            assert w._stripe_right.tool_label("graphs") == "Графіки"
             assert "Відключено" in w._sb_conn.text()
             # menuBar first menu is "File" → "Файл"
             assert w.menuBar().actions()[0].text() == "Файл"

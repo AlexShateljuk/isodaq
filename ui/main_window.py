@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -55,6 +54,7 @@ from ui.analytics_panel import AnalyticsPanel
 from ui.chart_panel import ChartPanel
 from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
+from ui.tool_window import StripeBar, ToolDock
 from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
@@ -347,19 +347,49 @@ class MainWindow(QMainWindow):
         # above the split, so it never competes with the terminal for room.
         root.addWidget(self._build_port_bar())
 
+        # ── Tool-window shell (IntelliJ pattern) ─────────────────────────────
+        #   [left stripe][ left dock | centre | right dock ][right stripe]
+        #                [          bottom dock            ]
+        #   [            bottom stripe (full width)                      ]
+        body = QWidget()
+        body_lay = QHBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+
+        self._stripe_left = StripeBar("left")
+        body_lay.addWidget(self._stripe_left)
+
+        self._vert_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._vert_splitter.setHandleWidth(3)
+
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(3)
-        root.addWidget(self._main_splitter)
-
+        self._dock_left = ToolDock()
+        self._main_splitter.addWidget(self._dock_left)
         self._main_splitter.addWidget(self._build_left())
-        self._right_widget = self._build_right()
-        self._main_splitter.addWidget(self._right_widget)
-        self._main_splitter.setSizes([702, 598])
+        self._dock_right = ToolDock()
+        self._main_splitter.addWidget(self._dock_right)
+        self._main_splitter.setSizes([220, 700, 380])
+        self._main_splitter.setStretchFactor(1, 1)
 
+        self._vert_splitter.addWidget(self._main_splitter)
+        self._dock_bottom = ToolDock()
+        self._vert_splitter.addWidget(self._dock_bottom)
+        self._vert_splitter.setSizes([520, 200])
+        self._vert_splitter.setStretchFactor(0, 1)
+        body_lay.addWidget(self._vert_splitter, 1)
+
+        self._stripe_right = StripeBar("right")
+        body_lay.addWidget(self._stripe_right)
+        root.addWidget(body, 1)
+
+        self._stripe_bottom = StripeBar("bottom")
+        root.addWidget(self._stripe_bottom)
+
+        self._populate_tool_windows()
         self._build_statusbar()
 
-        # Right panel starts collapsed by default (Advanced mode); a persisted
-        # preference is restored later in SettingsManager.load().
+        # Docks start collapsed; a persisted set is restored in SettingsManager.
         self._apply_right_panel()
 
     # ── Menu ──────────────────────────────────────────────────────────────────
@@ -487,6 +517,7 @@ class MainWindow(QMainWindow):
         running = conn.reader.isRunning()
         self._conn_bar.setTabText(idx, conn.name)
         self._conn_bar.setTabTextColor(idx, conn.color if running else C_DIM)
+        self._refresh_devices_panel()
 
     def _add_connection(self) -> None:
         """Create a new connection (its own terminal + transport) and focus it."""
@@ -499,6 +530,7 @@ class MainWindow(QMainWindow):
         self._serial.wire_reader(conn, conn.reader)   # wire its default reader
         self._add_conn_tab(conn)
         self._conn_bar.setCurrentIndex(self._conn_tab_index(conn.id))
+        self._refresh_devices_panel()
 
     def _on_conn_tab_changed(self, index: int) -> None:
         conn = self._conn_by_id(self._conn_bar.tabData(index))
@@ -534,6 +566,7 @@ class MainWindow(QMainWindow):
         if conn in self._connections:
             self._connections.remove(conn)
         conn.deleteLater()
+        self._refresh_devices_panel()
 
     def _set_active_connection(self, conn) -> None:
         if conn is self._active_conn:
@@ -549,6 +582,7 @@ class MainWindow(QMainWindow):
         self._events_stack.setCurrentWidget(conn.events)
         self._analytics_stack.setCurrentWidget(conn.analytics)
         self._refresh_conn_state()
+        self._refresh_devices_panel()
 
     def _refresh_conn_state(self) -> None:
         """Reflect the active connection's reader state on the Connect button +
@@ -850,50 +884,176 @@ class MainWindow(QMainWindow):
 
         return bar
 
-    # ── Right panel ───────────────────────────────────────────────────────────
+    # ── Tool windows ──────────────────────────────────────────────────────────
 
-    def _build_right(self) -> QWidget:
-        """Right panel (46 %): tabbed chart area (Graphs / Indicators / FFT) + sidebar."""
-        w = QWidget()
-        w.setObjectName("rightPanel")   # bg2 so the tab-row gap fills (not dark bg)
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+    #: tool key → (edge, translated title). Defines the whole dock layout.
+    TOOLS = (
+        ("devices",   "left",   "Devices"),
+        ("parsing",   "left",   "Parsing"),
+        ("macros",    "left",   "Macros"),
+        ("custom",    "left",   "Custom command"),
+        ("graphs",    "right",  "Graphs"),
+        ("indicators", "right", "Indicators"),
+        ("events",    "bottom", "Events"),
+        ("analytics", "bottom", "Analytics"),
+        ("triggers",  "bottom", "Triggers"),
+        ("logger",    "bottom", "Data Logger"),
+    )
 
-        self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(False)        # documentMode drew a stray base line
-        self._tabs.tabBar().setDrawBase(False)   # no native base line under the tabs
-        lay.addWidget(self._tabs)
-
-        # Graphs + Indicators are per-connection (SER3): each tab holds a stack
-        # of that connection's panel; switching connections swaps the page.
-        self._chart_stack = QStackedWidget()
-        self._tabs.addTab(self._chart_stack, tr("Graphs"))
-
+    def _populate_tool_windows(self) -> None:
+        """Create every tool's content widget, register it on its dock, and add
+        the matching stripe button."""
+        # Per-connection stacks (filled by _make_display_panels per connection).
+        self._chart_stack     = QStackedWidget()
         self._indicator_stack = QStackedWidget()
-        self._tabs.addTab(self._indicator_stack, tr("Indicators"))
-
-        self._events_stack = QStackedWidget()
-        self._tabs.addTab(self._events_stack, tr("Events"))
-
+        self._events_stack    = QStackedWidget()
         self._analytics_stack = QStackedWidget()
-        self._tabs.addTab(self._analytics_stack, tr("Analytics"))
+        self._trigger_stack   = QStackedWidget()
+        self._logger_stack    = QStackedWidget()
+        self._parse_stack     = QStackedWidget()
 
-        # Pop-out button in the tab-bar corner
-        _float_btn = QPushButton("⤢")
-        _float_btn.setObjectName("floatBtn")
-        _float_btn.setFixedSize(26, 22)
-        _float_btn.setToolTip(tr("Open in separate window"))
-        _float_btn.setStyleSheet(
-            "border:none;background:transparent;color:#6b7280;"
-            "font-size:14px;padding:0;")
-        _float_btn.clicked.connect(lambda: self._float_current_tab())
-        self._tabs.setCornerWidget(_float_btn)
+        self._macro_panel = MacroPanel(self._macro_runner)
+        self._devices_panel = self._build_devices_panel()
 
-        lay.addWidget(self._build_sidebar())
-        # Now that all three stacks exist, build the active connection's panels.
+        content = {
+            "devices":    self._devices_panel,
+            "parsing":    self._parse_stack,
+            "macros":     self._macro_panel,
+            "custom":     self._build_custom_cmd(),
+            "graphs":     self._chart_stack,
+            "indicators": self._indicator_stack,
+            "events":     self._events_stack,
+            "analytics":  self._analytics_stack,
+            "triggers":   self._trigger_stack,
+            "logger":     self._logger_stack,
+        }
+        docks   = {"left": self._dock_left, "right": self._dock_right,
+                   "bottom": self._dock_bottom}
+        stripes = {"left": self._stripe_left, "right": self._stripe_right,
+                   "bottom": self._stripe_bottom}
+
+        actions = self._tool_actions()
+        self._tool_edge: dict[str, str] = {}
+        for key, edge, title in self.TOOLS:
+            docks[edge].add_tool(key, tr(title), content[key], actions.get(key))
+            stripes[edge].add_tool(key, tr(title))
+            self._tool_edge[key] = edge
+
+        for edge, dock in docks.items():
+            dock.closed.connect(lambda e=edge: self._close_dock(e))
+            stripes[edge].clicked_tool.connect(self._toggle_tool)
+            dock.hide()
+
+        # Legacy key kept for SettingsManager's "sections" entry (now unused).
+        self._sidebar_sections: dict = {}
+        # Now that the stacks exist, build the first connection's panels.
         self._make_display_panels(self._active_conn)
-        return w
+
+    def _toggle_tool(self, key: str) -> None:
+        """Stripe click: open the tool, or collapse its dock if already shown."""
+        edge = self._tool_edge[key]
+        dock, stripe = self._dock_for(edge)
+        if dock.isVisible() and dock.current == key:
+            self._close_dock(edge)
+            return
+        dock.show_tool(key)
+        dock.show()
+        stripe.set_active(key)
+        if edge == "right":
+            self._right_panel_visible = True
+            self._panel_toggle_btn.setText("⊞")
+
+    def _close_dock(self, edge: str) -> None:
+        dock, stripe = self._dock_for(edge)
+        dock.hide()
+        stripe.set_active(None)
+        if edge == "right":
+            self._right_panel_visible = False
+            self._panel_toggle_btn.setText("⊟")
+
+    def _dock_for(self, edge: str):
+        return ({"left": self._dock_left, "right": self._dock_right,
+                 "bottom": self._dock_bottom}[edge],
+                {"left": self._stripe_left, "right": self._stripe_right,
+                 "bottom": self._stripe_bottom}[edge])
+
+    def _tool_actions(self) -> dict[str, list[QWidget]]:
+        """Per-tool header buttons (what used to sit on the sidebar sections)."""
+        def _btn(text, tip, slot, width=None, obj="add"):
+            b = QPushButton(text)
+            b.setObjectName(obj)
+            b.setFixedHeight(18)
+            if width:
+                b.setFixedWidth(width)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            return b
+
+        return {
+            "macros": [
+                _btn("📁", tr("Send file directly over serial"),
+                     lambda: self._macro_panel._send_file_direct(), 22, "iconAct"),
+                _btn(tr("+ Add"), tr("New macro"),
+                     lambda: self._macro_panel._new_macro()),
+            ],
+            "parsing": [
+                _btn(tr("+ Add"), tr("Add a channel"),
+                     lambda: self._parse_panel.open_editor()),
+            ],
+            "logger": [
+                _btn("📂", tr("Open log folder"),
+                     lambda: self._logger_panel._open_folder(), 22, "iconAct"),
+            ],
+            "triggers": [
+                _btn(tr("Reset"), tr("Clear hit counters"),
+                     lambda: self._trigger_panel._clear_hits(), None, "iconAct"),
+                _btn(tr("+ Add"), tr("New trigger"),
+                     lambda: self._trigger_panel._open_editor()),
+            ],
+        }
+
+    def _build_devices_panel(self) -> QWidget:
+        """Connection list — scales past the handful of tabs that fit up top."""
+        panel = QWidget()
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 4, 0, 4)
+        lay.setSpacing(0)
+        self._devices_list = QVBoxLayout()
+        self._devices_list.setContentsMargins(0, 0, 0, 0)
+        self._devices_list.setSpacing(0)
+        lay.addLayout(self._devices_list)
+        lay.addStretch()
+        add = QPushButton(tr("+ Add connection"))
+        add.setObjectName("add")
+        add.clicked.connect(self._add_connection)
+        lay.addWidget(add)
+        return panel
+
+    def _refresh_devices_panel(self) -> None:
+        """Rebuild the Devices list from the current connections."""
+        if not hasattr(self, "_devices_list"):
+            return
+        while self._devices_list.count():
+            item = self._devices_list.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                # setParent(None) first: deleteLater alone leaves the old row
+                # painted at its last geometry until the event loop runs.
+                w.setParent(None)
+                w.deleteLater()
+        for conn in self._connections:
+            row = QPushButton(conn.name)
+            row.setObjectName("deviceRow")
+            row.setCheckable(True)
+            row.setChecked(conn is self._active_conn)
+            running = conn.reader.isRunning()
+            row.setStyleSheet(
+                f"text-align:left;padding:4px 10px;border:none;"
+                f"color:{(conn.color if running else C_DIM).name()};")
+            row.clicked.connect(
+                lambda _=False, c=conn: self._conn_bar.setCurrentIndex(
+                    self._conn_tab_index(c.id)))
+            self._devices_list.addWidget(row)
 
     def _make_display_panels(self, conn) -> None:
         """Create a connection's own display panels (Parsing / Graphs /
@@ -929,91 +1089,6 @@ class MainWindow(QMainWindow):
         self._logger_stack.addWidget(conn.logger_panel)
         self._events_stack.addWidget(conn.events)
         self._analytics_stack.addWidget(conn.analytics)
-
-    def _build_sidebar(self) -> QWidget:
-        """
-        Scrollable right sidebar.
-        Every section is a CollapsibleSection accordion panel.
-        """
-        sidebar = QWidget()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(245)
-        lay = QVBoxLayout(sidebar)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        from PyQt6.QtWidgets import QFrame
-        scroll.setFrameShape(QFrame.Shape.NoFrame)   # no inset border/gap above Macros
-
-        inner = QWidget()
-        inner_lay = QVBoxLayout(inner)
-        inner_lay.setContentsMargins(0, 0, 0, 0)
-        inner_lay.setSpacing(0)
-
-        self._sidebar_sections: dict[str, CollapsibleSection] = {}
-
-        def _cs(key: str, title: str, content: QWidget,
-                extras: list | None = None, collapsed: bool = False):
-            cs = CollapsibleSection(title, content, extra_widgets=extras,
-                                    collapsed=collapsed)
-            self._sidebar_sections[key] = cs
-            inner_lay.addWidget(cs)
-
-        # ── Macros ────────────────────────────────────────────────────────────
-        self._macro_panel = MacroPanel(self._macro_runner, parent=inner)
-        _m_file = QPushButton("📁")
-        _m_file.setFixedSize(22, 20)
-        _m_file.setToolTip(tr("Send file directly over serial"))
-        _m_file.setStyleSheet("font-size:11px;padding:0;")
-        _m_file.clicked.connect(self._macro_panel._send_file_direct)
-        _m_add = QPushButton(tr("+ Add"))
-        _m_add.setObjectName("add")
-        _m_add.setFixedHeight(20)
-        _m_add.clicked.connect(self._macro_panel._new_macro)
-        _cs("macros", tr("Macros"), self._macro_panel, extras=[_m_file, _m_add])
-
-        # ── Parsing ───────────────────────────────────────────────────────────
-        # Per-connection parse panels live in a stack (SER3); the active one is
-        # exposed as self._parse_panel. Populated by _make_display_panels.
-        self._parse_stack = QStackedWidget()
-        _p_add = QPushButton(tr("+ Add"))
-        _p_add.setObjectName("add")
-        _p_add.setFixedHeight(20)
-        _p_add.clicked.connect(lambda: self._parse_panel.open_editor())
-        _cs("parsing", tr("Parsing"), self._parse_stack, extras=[_p_add], collapsed=True)
-
-        # ── Data Logger ───────────────────────────────────────────────────────
-        # Per-connection (SER3): each connection logs to its own files.
-        self._logger_stack = QStackedWidget()
-        _l_folder = QPushButton("📂")
-        _l_folder.setFixedSize(22, 20)
-        _l_folder.setToolTip(tr("Open log folder"))
-        _l_folder.setStyleSheet("font-size:11px;padding:0;")
-        _l_folder.clicked.connect(lambda: self._logger_panel._open_folder())
-        _cs("logger", tr("Data Logger"), self._logger_stack, extras=[_l_folder])
-
-        # ── Triggers ──────────────────────────────────────────────────────────
-        # Per-connection (SER3): each connection has its own trigger set + hits.
-        self._trigger_stack = QStackedWidget()
-        _t_reset = QPushButton(tr("Reset"))
-        _t_reset.setFixedHeight(20)
-        _t_reset.clicked.connect(lambda: self._trigger_panel._clear_hits())
-        _t_add = QPushButton(tr("+ Add"))
-        _t_add.setObjectName("add")
-        _t_add.setFixedHeight(20)
-        _t_add.clicked.connect(lambda: self._trigger_panel._open_editor())
-        _cs("triggers", tr("Triggers"), self._trigger_stack, extras=[_t_reset, _t_add])
-
-        # ── Custom command ────────────────────────────────────────────────────
-        _cs("custom", tr("Custom command"), self._build_custom_cmd(), collapsed=True)
-
-        inner_lay.addStretch()
-        scroll.setWidget(inner)
-        lay.addWidget(scroll)
-        return sidebar
-
 
     def _build_custom_cmd(self) -> QWidget:
         from PyQt6.QtWidgets import QTextEdit as QTE
@@ -1154,21 +1229,23 @@ class MainWindow(QMainWindow):
 
     # ── Parse panel → display panel slots ────────────────────────────────────
 
-    @pyqtSlot(str, bool)
     def _float_current_tab(self) -> None:
-        """Detach the active tab panel into its own resizable window."""
-        idx = self._tabs.currentIndex()
-        if idx < 0:
-            return
-        widget = self._tabs.widget(idx)
-        title  = self._tabs.tabText(idx)
-        self._tabs.removeTab(idx)
-        win = _FloatWindow(widget, title, self._tabs, idx)
-        win.setStyleSheet(QApplication.instance().styleSheet())
-        tint_titlebar(win)
-        win.destroyed.connect(lambda: self._float_wins.remove(win) if win in self._float_wins else None)
-        self._float_wins.append(win)
-        win.show()
+        """Detach the focused dock's current tool into its own window (F4)."""
+        for edge in ("right", "bottom", "left"):
+            dock, _ = self._dock_for(edge)
+            if dock.isVisible() and dock.current:
+                win = dock.float_current()
+                if win is None:
+                    return
+                win.setStyleSheet(QApplication.instance().styleSheet())
+                tint_titlebar(win)
+                win.destroyed.connect(
+                    lambda _=None, w=win: self._float_wins.remove(w)
+                    if w in self._float_wins else None)
+                self._float_wins.append(win)
+                win.show()
+                self._close_dock(edge)
+                return
 
     def _on_channel_chart_req(self, conn, name: str, enable: bool) -> None:
         if enable:
@@ -1200,13 +1277,12 @@ class MainWindow(QMainWindow):
         C_FG  = QColor(c["fg"])
         # Set on QApplication so all open dialogs inherit it automatically
         QApplication.instance().setStyleSheet(build_stylesheet(theme))
-        # Force the tab bar to repaint — on macOS the empty tab-bar area can keep
-        # stale paint from the previous theme (the "dark rectangle after Analytics").
-        self._repolish(self._tabs)
-        self._repolish(self._tabs.tabBar())
-        if self._tabs.cornerWidget():
-            self._repolish(self._tabs.cornerWidget())
-        self._tabs.update()
+        # Repaint the stripes/docks — stale paint otherwise lingers on macOS.
+        for w in (self._stripe_left, self._stripe_right, self._stripe_bottom,
+                  self._dock_left, self._dock_right, self._dock_bottom,
+                  self._conn_bar):
+            self._repolish(w)
+            w.update()
         for conn in self._connections:
             if getattr(conn, "chart", None) is not None:
                 conn.chart.apply_theme(c)
@@ -1224,17 +1300,25 @@ class MainWindow(QMainWindow):
             sb.setValue(sb.maximum())
 
     def _apply_right_panel(self) -> None:
-        """Show/hide the right panel per the current toggle + mode and sync the
-        toggle button. The right panel is only ever shown in Advanced mode."""
-        show = self._right_panel_visible and self._mode == "advanced"
-        self._right_widget.setVisible(show)
+        """Sync the data-side tool windows with the toggle + mode.
+
+        Simple mode hides every dock and stripe, leaving just the terminal;
+        Advanced restores the right dock when the toggle is on."""
+        advanced = self._mode == "advanced"
+        for stripe in (self._stripe_left, self._stripe_right, self._stripe_bottom):
+            stripe.setVisible(advanced)
+        if not advanced:
+            for edge in ("left", "right", "bottom"):
+                self._dock_for(edge)[0].hide()
+        elif self._right_panel_visible:
+            if not self._dock_right.isVisible():
+                self._toggle_tool(self._dock_right.current or "graphs")
+        else:
+            self._close_dock("right")
         self._panel_toggle_btn.setText("⊞" if self._right_panel_visible else "⊟")
-        if show:
-            total = self._main_splitter.width()
-            self._main_splitter.setSizes([int(total * 0.54), int(total * 0.46)])
 
     def _toggle_right_panel(self) -> None:
-        """Show or hide the right panel (⊞ button / Ctrl+Shift+R)."""
+        """Show or hide the data side (⊞ button / Ctrl+Shift+R)."""
         self._right_panel_visible = not self._right_panel_visible
         self._apply_right_panel()
 
