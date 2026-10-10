@@ -224,6 +224,15 @@ QPushButton#iconAct {{
 }}
 QPushButton#iconAct:hover {{ color: {c['accent']}; border-color: {c['accent_brd']}; }}
 QPushButton#deviceRow {{ background: transparent; font-size: 11px; }}
+
+/* Density: IDE-scale rows inside tool windows (was desktop-app spacing) */
+QWidget#toolDock QPushButton {{ padding: 3px 9px; font-size: 11px; }}
+QWidget#toolDock QComboBox {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
+QWidget#toolDock QLineEdit {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
+QWidget#toolDock QCheckBox {{ font-size: 11px; }}
+QWidget#toolDock QLabel {{ font-size: 11px; }}
+QWidget#toolDock QTableWidget {{ font-size: 11px; }}
+QWidget#toolDock QHeaderView::section {{ padding: 3px 6px; font-size: 10px; }}
 QPushButton#deviceRow:hover {{ background: {c['bg3']}; }}
 QPushButton#deviceRow:checked {{ background: {c['accent_bg']}; }}
 

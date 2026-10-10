@@ -17,6 +17,7 @@ _LINE_ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
 class TriggerEventsPanel(QWidget):
     jump_to_line = pyqtSignal(int)   # emitted with the terminal line id on double-click
+    count_changed = pyqtSignal(int)  # row count, for the tool-stripe badge
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -28,8 +29,10 @@ class TriggerEventsPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # Toolbar
+        # Toolbar — hidden when the panel is embedded in a ToolDock, which
+        # already provides a title row (see set_embedded).
         bar = QWidget()
+        self._bar = bar
         bar.setObjectName("sectionHeader")
         bl = QHBoxLayout(bar)
         bl.setContentsMargins(8, 6, 8, 6)
@@ -46,6 +49,7 @@ class TriggerEventsPanel(QWidget):
         clear_btn.clicked.connect(self.clear)
         bl.addWidget(clear_btn)
         lay.addWidget(bar)
+        self.count = 0
 
         self._table = QTableWidget(0, len(_BASE_COLS))
         self._table.setHorizontalHeaderLabels(_BASE_COLS)
@@ -112,7 +116,16 @@ class TriggerEventsPanel(QWidget):
             self._table.setItem(row, len(_BASE_COLS) + i, item)
         self._table.scrollToBottom()
         self._count_lbl.setText(f"{row + 1} events")
+        self.count = row + 1
+        self.count_changed.emit(self.count)
 
     def clear(self) -> None:
         self._table.setRowCount(0)
         self._count_lbl.setText("0 events")
+        self.count = 0
+        self.count_changed.emit(0)
+
+    def set_embedded(self, embedded: bool = True) -> None:
+        """Hide the panel's own title row when it lives inside a ToolDock,
+        which already shows the title + actions."""
+        self._bar.setVisible(not embedded)

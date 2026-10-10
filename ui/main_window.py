@@ -1,18 +1,28 @@
 """
 ui/main_window.py — Main application window
 
-Layout:
-  Titlebar
+Layout — IntelliJ-style tool windows (see ui/tool_window.py):
+
   Menubar
-  ┌──────────────────────┬────────────────────────────────┐
-  │   LEFT (46%)         │   RIGHT (54%)                  │
-  │                      │   ┌──────────────┬──────────┐  │
-  │  Port settings       │   │ Tabs+Charts  │ Sidebar  │  │
-  │  Terminal output     │   │              │ Parsing  │  │
-  │  Parser strip        │   │              │ Logger   │  │
-  │  Command input       │   │              │ Triggers │  │
-  └──────────────────────┴───┴──────────────┴──────────┘
-  Statusbar
+  ┌───────────────────────────────────────────────────────────┐
+  │ Connection toolbar (full width, one row)                  │
+  ├──┬──────────────┬─────────────────────────┬───────────┬──┤
+  │  │              │  Connection tabs        │           │  │
+  │L │  left dock   │  Terminal               │ right     │R │
+  │st│  Devices /   │  Find bar               │ dock      │st│
+  │ri│  Parsing /   │  Command input          │ Graphs /  │ri│
+  │pe│  Macros      │                         │ Indicators│pe│
+  │  ├──────────────┴─────────────────────────┴───────────┤  │
+  │  │ bottom dock — Events / Analytics / Triggers / Log  │  │
+  ├──┴────────────────────────────────────────────────────┴──┤
+  │ bottom stripe: Events · N | Analytics | Triggers | Log    │
+  ├───────────────────────────────────────────────────────────┤
+  │ Statusbar                                                 │
+  └───────────────────────────────────────────────────────────┘
+
+Every dock collapses to its stripe, so the terminal can own the window.
+Each connection (SER3) owns its own terminal, parser, logger, triggers and
+display panels; switching the connection tab swaps all of them.
 """
 from __future__ import annotations
 
@@ -1000,6 +1010,10 @@ class MainWindow(QMainWindow):
                 _btn(tr("+ Add"), tr("Add a channel"),
                      lambda: self._parse_panel.open_editor()),
             ],
+            "events": [
+                _btn(tr("Clear"), tr("Clear the event log"),
+                     lambda: self._trigger_events_panel.clear(), None, "iconAct"),
+            ],
             "logger": [
                 _btn("📂", tr("Open log folder"),
                      lambda: self._logger_panel._open_folder(), 22, "iconAct"),
@@ -1011,6 +1025,28 @@ class MainWindow(QMainWindow):
                      lambda: self._trigger_panel._open_editor()),
             ],
         }
+
+    def _on_events_count(self, conn, n: int) -> None:
+        """Show the active connection's event count on the Events stripe."""
+        if conn is self._active_conn:
+            base = tr("Events")
+            self._stripe_bottom.set_badge(
+                "events", f"{base} · {n}" if n else base)
+
+    def open_tools(self) -> list[str]:
+        """Keys of the currently open tools (one per edge at most)."""
+        out = []
+        for edge in ("left", "right", "bottom"):
+            dock, _ = self._dock_for(edge)
+            if dock.isVisible() and dock.current:
+                out.append(dock.current)
+        return out
+
+    def restore_tools(self, keys: list[str]) -> None:
+        """Re-open a persisted set of tools (ignores unknown keys)."""
+        for key in keys:
+            if key in getattr(self, "_tool_edge", {}):
+                self._toggle_tool(key)
 
     def _build_devices_panel(self) -> QWidget:
         """Connection list — scales past the handful of tabs that fit up top."""
@@ -1024,7 +1060,8 @@ class MainWindow(QMainWindow):
         lay.addLayout(self._devices_list)
         lay.addStretch()
         add = QPushButton(tr("+ Add connection"))
-        add.setObjectName("add")
+        add.setObjectName("iconAct")
+        add.setFixedHeight(22)
         add.clicked.connect(self._add_connection)
         lay.addWidget(add)
         return panel
@@ -1075,6 +1112,9 @@ class MainWindow(QMainWindow):
         conn.parse.channel_indicator_req.connect(
             lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
         conn.events.jump_to_line.connect(self._search.jump_to_line)
+        conn.events.set_embedded(True)       # dock header already titles it
+        conn.events.count_changed.connect(
+            lambda n, c=conn: self._on_events_count(c, n))
         conn.trigger.trigger_changed.connect(
             lambda c=conn: self._triggers.sync_analytics(c))
         # Per-connection triggers "fire always" — each engine's matches route to

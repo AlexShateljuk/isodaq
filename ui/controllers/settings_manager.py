@@ -124,6 +124,9 @@ class SettingsManager(QObject):
         if "mode" in data:
             mw._set_mode(data["mode"])
 
+        if "open_tools" in data and isinstance(data["open_tools"], list):
+            mw.restore_tools([str(k) for k in data["open_tools"]])
+
         if "right_panel" in data:
             mw._right_panel_visible = bool(data["right_panel"])
         mw._apply_right_panel()
@@ -173,6 +176,7 @@ class SettingsManager(QObject):
                 "indicator_thresholds": mw._indicator_panel.get_thresholds(),
                 "mode":          mw._mode,
                 "right_panel":   mw._right_panel_visible,
+                "open_tools":    mw.open_tools(),
                 "signaling_url": mw._signaling_url,
                 "language":      mw._language,
             }, indent=2))
