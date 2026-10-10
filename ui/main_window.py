@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         self._ssh_sessions: list[dict] = []   # saved SSH profiles (name/host/port/user/key/command; no password)
         self._ssh_params: dict = {}           # active profile (+ in-memory password)
         self._net_url: str = ""               # last-used network target (socket://… / rfc2217://…)
+        self._port_options_menu = None        # built lazily by _open_port_options
         self._float_wins: list[_FloatWindow] = []
         self._terminal_font_size: int = 11
         self._scrollback_limit: int = 5000
@@ -342,6 +343,10 @@ class MainWindow(QMainWindow):
         self._update_banner = self._updates.build_banner()
         root.addWidget(self._update_banner)
 
+        # Window-wide connection toolbar (IDE pattern): spans the full width
+        # above the split, so it never competes with the terminal for room.
+        root.addWidget(self._build_port_bar())
+
         self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._main_splitter.setHandleWidth(3)
         root.addWidget(self._main_splitter)
@@ -410,7 +415,6 @@ class MainWindow(QMainWindow):
         lay.setSpacing(0)
 
         lay.addWidget(self._build_conn_bar())
-        lay.addWidget(self._build_port_bar())
 
         # One terminal widget per connection, shown via a stack (SER3). The
         # active connection's terminal is exposed as `self._terminal`.
@@ -578,132 +582,174 @@ class MainWindow(QMainWindow):
         return term
 
     def _build_port_bar(self) -> QWidget:
-        """
-        Top bar of the left panel.
-        Row 1 — port selector, refresh, Connect/Disconnect button.
-        Row 2 — baud rate, data bits (8N1…), flow control.
-        Row 3 — Timestamp / HEX / Autoscroll / Echo checkboxes, font-size control, Clear.
+        """Single compact connection toolbar (IDE-style, ~30px).
+
+        Inline: transport, target, rescan, baud, Connect, overflow, then
+        Share / Join / panel toggle on the right. Everything you set once —
+        data bits, flow control, the view toggles, font size, Clear — lives in
+        the ``⋯`` overflow popover, which hosts the *same* widgets so settings
+        persistence and the serial controller keep reading them unchanged.
         """
         bar = QWidget()
         bar.setObjectName("portBar")
-        lay = QVBoxLayout(bar)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(10)
+        # Fixed vertical policy: the root layout must not stretch the toolbar.
+        bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(5)
 
-        # Row 1: transport + target + connect
-        r1 = QHBoxLayout()
-        r1.setSpacing(10)
         self._transport_combo = QComboBox()
         self._transport_combo.addItems(["Serial", "Network", "SSH"])
-        self._transport_combo.setFixedWidth(92)
+        self._transport_combo.setFixedWidth(94)
         self._transport_combo.setToolTip(
             tr("Transport: local serial, TCP/RFC2217 network, or SSH"))
-        r1.addWidget(self._transport_combo)
+        lay.addWidget(self._transport_combo)
+
         self._port_combo = QComboBox()
         self._port_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._port_combo.setMinimumWidth(170)
         self._port_combo.activated.connect(self._on_port_activated)
         self._port_combo.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._port_combo.customContextMenuRequested.connect(self._on_port_context_menu)
-        r1.addWidget(self._port_combo)
+        lay.addWidget(self._port_combo, 1)
+
         self._refresh_btn = QPushButton("⟳")
-        self._refresh_btn.setFixedWidth(50)
+        self._refresh_btn.setFixedWidth(34)
         self._refresh_btn.setToolTip(tr("Rescan serial ports"))
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
-        r1.addWidget(self._refresh_btn)
+        lay.addWidget(self._refresh_btn)
+
+        self._baud_combo = QComboBox()
+        self._baud_combo.addItems(["9600", "19200", "38400", "57600",
+                                   "115200", "230400", "460800", "921600"])
+        self._baud_combo.setCurrentText("115200")
+        self._baud_combo.setFixedWidth(104)
+        self._baud_combo.setToolTip(tr("Baud rate"))
+        lay.addWidget(self._baud_combo)
+
         self._conn_btn = QPushButton(tr("Connect"))
         self._conn_btn.setObjectName("connectBtn")
-        self._conn_btn.setFixedWidth(100)
+        self._conn_btn.setFixedWidth(104)
         self._conn_btn.clicked.connect(self._serial.toggle_connection)
-        r1.addWidget(self._conn_btn)
+        lay.addWidget(self._conn_btn)
+
+        self._more_btn = QPushButton("⋯")
+        self._more_btn.setObjectName("moreBtn")
+        self._more_btn.setFixedWidth(26)
+        self._more_btn.setToolTip(tr("Port options and terminal view settings"))
+        self._more_btn.clicked.connect(self._open_port_options)
+        lay.addWidget(self._more_btn)
+
+        lay.addStretch()
+
         self._share_btn = QPushButton(tr("Share"))
         self._share_btn.setObjectName("shareBtn")
-        self._share_btn.setFixedHeight(28)
         self._share_btn.setToolTip(tr("Share this serial session with a colleague"))
         self._share_btn.clicked.connect(self._session.toggle_share)
-        r1.addWidget(self._share_btn)
+        lay.addWidget(self._share_btn)
 
         self._join_btn = QPushButton(tr("Join"))
         self._join_btn.setObjectName("joinBtn")
-        self._join_btn.setFixedHeight(28)
         self._join_btn.setToolTip(tr("Connect to a shared session"))
         self._join_btn.clicked.connect(self._session.open_join_dialog)
-        r1.addWidget(self._join_btn)
+        lay.addWidget(self._join_btn)
 
         self._panel_toggle_btn = QPushButton("⊞")
         self._panel_toggle_btn.setObjectName("panelToggleBtn")
-        self._panel_toggle_btn.setFixedSize(28, 28)
+        self._panel_toggle_btn.setFixedSize(26, 24)
         self._panel_toggle_btn.setToolTip(tr("Show/hide right panel  (Ctrl+Shift+R)"))
         self._panel_toggle_btn.clicked.connect(self._toggle_right_panel)
-        r1.addWidget(self._panel_toggle_btn)
-        lay.addLayout(r1)
+        lay.addWidget(self._panel_toggle_btn)
 
-        # Row 2: baud + data bits + flow
-        r2 = QHBoxLayout()
-        r2.setSpacing(6)
-        r2.addWidget(self._lbl("BAUD", mono=True, dim=True))
-        self._baud_combo = QComboBox()
-        self._baud_combo.addItems(["9600","19200","38400","57600","115200","230400","460800","921600"])
-        self._baud_combo.setCurrentText("115200")
-        self._baud_combo.setFixedWidth(100)
-        r2.addWidget(self._baud_combo)
-        r2.addWidget(self._lbl(tr("Data"), dim=True))
+        # ── Widgets that moved into the ⋯ popover ────────────────────────────
+        # Created here (not in the popover) so they exist for the whole window
+        # lifetime; the popover only re-parents them when it opens.
         self._data_combo = QComboBox()
-        self._data_combo.addItems(["8N1","8E1","8O1","7N1"])
-        self._data_combo.setFixedWidth(100)
-        r2.addWidget(self._data_combo)
-        r2.addWidget(self._lbl(tr("Flow"), dim=True))
+        self._data_combo.addItems(["8N1", "8E1", "8O1", "7N1"])
         self._flow_combo = QComboBox()
-        self._flow_combo.addItems(["None","RTS/CTS","XON/XOFF"])
-        self._flow_combo.setFixedWidth(120)
-        r2.addWidget(self._flow_combo)
-        r2.addStretch()
-        lay.addLayout(r2)
+        self._flow_combo.addItems(["None", "RTS/CTS", "XON/XOFF"])
+        self._chk_ts   = QCheckBox(tr("Timestamp")); self._chk_ts.setChecked(True)
+        self._chk_hex  = QCheckBox("HEX")
+        self._chk_auto = QCheckBox(tr("Autoscroll")); self._chk_auto.setChecked(True)
+        self._chk_echo = QCheckBox(tr("Echo"));       self._chk_echo.setChecked(True)
+        self._font_size_lbl = QLabel(str(self._terminal_font_size))
+        self._font_size_lbl.setFixedWidth(20)
+        self._font_size_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._font_size_lbl.setObjectName("dimLabelMono")
 
-        # Row 3: checkboxes + font size + clear
-        r3 = QHBoxLayout()
-        r3.setSpacing(0)
-        r3.setContentsMargins(0, 2, 0, 2)
-        self._chk_ts    = QCheckBox(tr("Timestamp")); self._chk_ts.setChecked(True)
-        self._chk_hex   = QCheckBox("HEX")
-        self._chk_auto  = QCheckBox(tr("Autoscroll")); self._chk_auto.setChecked(True)
-        self._chk_echo  = QCheckBox(tr("Echo"));       self._chk_echo.setChecked(True)
-        for chk in (self._chk_ts, self._chk_hex, self._chk_auto, self._chk_echo):
-            r3.addWidget(chk)
-            r3.addSpacing(20)
-        r3.addStretch()
+        # Wire transport switching last (all widgets now exist).
+        self._transport_combo.currentTextChanged.connect(self._on_transport_changed)
+        return bar
 
-        # Font size control — separated by a spacer from checkboxes
-        r3.addSpacing(6)
-        r3.addWidget(self._lbl("A", dim=True))
-        r3.addSpacing(4)
+    def _open_port_options(self) -> None:
+        """Popover under ⋯ holding the set-once port options and view toggles.
+
+        Built once and reused: a QWidgetAction owns its default widget, so a
+        throwaway menu would destroy the combos/checkboxes that the rest of the
+        app reads."""
+        from PyQt6.QtWidgets import QGridLayout, QMenu, QWidgetAction
+
+        if getattr(self, "_port_options_menu", None) is not None:
+            self._port_options_menu.exec(self._more_btn.mapToGlobal(
+                self._more_btn.rect().bottomLeft()))
+            return
+
+        menu = QMenu(self)
+        self._port_options_menu = menu
+        panel = QWidget()
+        grid = QGridLayout(panel)
+        grid.setContentsMargins(12, 10, 12, 10)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(8)
+
+        grid.addWidget(self._lbl(tr("Data"), dim=True), 0, 0)
+        grid.addWidget(self._data_combo, 0, 1)
+        grid.addWidget(self._lbl(tr("Flow"), dim=True), 1, 0)
+        grid.addWidget(self._flow_combo, 1, 1)
+
+        grid.addWidget(self._hline(), 2, 0, 1, 2)
+
+        grid.addWidget(self._chk_ts,   3, 0)
+        grid.addWidget(self._chk_hex,  3, 1)
+        grid.addWidget(self._chk_auto, 4, 0)
+        grid.addWidget(self._chk_echo, 4, 1)
+
+        grid.addWidget(self._hline(), 5, 0, 1, 2)
+
+        font_row = QHBoxLayout()
+        font_row.setSpacing(4)
+        font_row.addWidget(self._lbl(tr("Font"), dim=True))
         font_dec = QPushButton("−")
         font_dec.setFixedSize(22, 22)
         font_dec.setToolTip(tr("Decrease terminal font size"))
-        font_dec.setStyleSheet("font-size:13px;padding:0;")
         font_dec.clicked.connect(lambda: self._change_font_size(-1))
-        r3.addWidget(font_dec)
-        self._font_size_lbl = QLabel("11")
-        self._font_size_lbl.setFixedWidth(22)
-        self._font_size_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._font_size_lbl.setObjectName("dimLabelMono")
-        r3.addWidget(self._font_size_lbl)
+        font_row.addWidget(font_dec)
+        font_row.addWidget(self._font_size_lbl)
         font_inc = QPushButton("+")
         font_inc.setFixedSize(22, 22)
         font_inc.setToolTip(tr("Increase terminal font size"))
-        font_inc.setStyleSheet("font-size:13px;padding:0;")
         font_inc.clicked.connect(lambda: self._change_font_size(+1))
-        r3.addWidget(font_inc)
-        r3.addSpacing(10)
-
+        font_row.addWidget(font_inc)
+        font_row.addStretch()
         clr = QPushButton(tr("Clear"))
         clr.setFixedHeight(22)
-        clr.clicked.connect(lambda: self._terminal.clear())
-        r3.addWidget(clr)
-        lay.addLayout(r3)
+        clr.clicked.connect(lambda: (self._terminal.clear(), menu.close()))
+        font_row.addWidget(clr)
+        grid.addLayout(font_row, 6, 0, 1, 2)
 
-        # Wire transport switching last (all row widgets now exist).
-        self._transport_combo.currentTextChanged.connect(self._on_transport_changed)
-        return bar
+        act = QWidgetAction(menu)
+        act.setDefaultWidget(panel)
+        menu.addAction(act)
+        menu.exec(self._more_btn.mapToGlobal(
+            self._more_btn.rect().bottomLeft()))
+
+    @staticmethod
+    def _hline() -> QWidget:
+        from PyQt6.QtWidgets import QFrame
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setObjectName("sep")
+        return line
 
     def _on_transport_changed(self, kind: str) -> None:
         """Adapt the target field to the selected transport.

@@ -184,6 +184,16 @@ QPushButton#addConnBtn {{
 }}
 QPushButton#addConnBtn:hover {{ color: {c['accent']}; border-color: {c['accent']}; }}
 
+/* Compact connection toolbar (one row) */
+QWidget#portBar {{ background: {c['bg2']}; border-bottom: 1px solid {c['border']}; }}
+QWidget#portBar QComboBox, QWidget#portBar QPushButton {{ min-height: 22px; }}
+QPushButton#moreBtn {{
+    background: transparent; border: 1px solid {c['border']}; border-radius: 3px;
+    color: {c['fg_mid']}; font-size: 14px; padding: 0;
+}}
+QPushButton#moreBtn:hover {{ color: {c['accent']}; border-color: {c['accent_brd']}; }}
+QFrame#sep {{ border: none; border-top: 1px solid {c['border']}; max-height: 1px; }}
+
 /* ── Scrollbars ─────────────────────────────────────────── */
 QScrollBar:vertical {{ background: transparent; width: 6px; margin: 2px; }}
 QScrollBar::handle:vertical {{
