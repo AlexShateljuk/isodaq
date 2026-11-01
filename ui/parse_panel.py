@@ -500,6 +500,7 @@ class ParsePanel(QWidget):
     def _rebuild(self) -> None:
         for r in self._rows:
             self._list_lay.removeWidget(r)
+            r.setParent(None)        # else the old row stays painted until deleted
             r.deleteLater()
         self._rows.clear()
         for ch in self._parser.get_channels():
@@ -515,6 +516,16 @@ class ParsePanel(QWidget):
         self.channel_indicator_req.emit(ch.name, False)
         self._parser.remove_channel(self._rows.index(row))
         self._rebuild()
+
+    def keep_channel(self, name: str) -> None:
+        """Turn a Quick Plot series into a Parsing channel (``key = name``),
+        shown on the chart — from then on it is edited like any channel."""
+        if name in self._parser.channel_names():
+            return
+        ch = ChannelConfig(name=name, key=name, show_chart=True)
+        self._parser.add_channel(ch)
+        self._rebuild()
+        self.channel_chart_req.emit(ch.name, True)
 
     # ── Live value update ─────────────────────────────────────────────────────
 

@@ -53,6 +53,7 @@ from PyQt6.QtWidgets import (
 
 from core.connection import Connection, PALETTE
 from core.macros import MacroRunner
+from core.quick_plot import quick_parse
 import core.signaling as signaling
 from core.i18n import current_language, tr
 from ui.logger_panel import LoggerPanel
@@ -757,6 +758,8 @@ class MainWindow(QMainWindow):
         self._baud_combo.setCurrentText("115200")
         self._baud_combo.setValidator(QIntValidator(1, 100_000_000, self._baud_combo))
         self._baud_combo.setFixedWidth(104)
+        # Editable, but don't grab keyboard focus at startup (click to type).
+        self._baud_combo.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._baud_combo.setToolTip(tr("Baud rate — pick one or type any rate"))
         lay.addWidget(self._baud_combo)
 
@@ -1269,6 +1272,7 @@ class MainWindow(QMainWindow):
             lambda name, en, c=conn: self._on_channel_chart_req(c, name, en))
         conn.parse.channel_indicator_req.connect(
             lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
+        conn.chart.keep_requested.connect(conn.parse.keep_channel)
         conn.events.jump_to_line.connect(self._search.jump_to_line)
         conn.events.set_embedded(True)       # dock header already titles it
         conn.events.count_changed.connect(
@@ -1535,6 +1539,17 @@ class MainWindow(QMainWindow):
             conn.parse.update_values(parsed)
             conn.chart.update(parsed)
             conn.indicator.update(parsed)
+
+        # Quick Plot (CMP5/CMP6): data-only lines plot without any setup.
+        # Names a Parsing channel already covers follow that channel instead.
+        if conn.chart.quick_enabled:
+            quick = quick_parse(line)
+            if quick:
+                if parsed or conn.parser.get_channels():
+                    names = conn.parser.channel_names()
+                    quick = {k: v for k, v in quick.items() if k not in names}
+                if quick:
+                    conn.chart.quick_update(quick)
 
         if is_active:
             # Feed macro runner (for wait-for pattern matching)

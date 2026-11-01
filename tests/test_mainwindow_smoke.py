@@ -256,3 +256,37 @@ def test_hex_view_renders_received_bytes(qapp, tmp_path, monkeypatch):
         assert "RX   plain" in text
     finally:
         w.close()
+
+
+def test_quick_plot_and_keep(qapp, tmp_path, monkeypatch):
+    """Data-only lines plot without setup; keeping one makes it a Parsing channel."""
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+    w = MainWindow()
+    try:
+        conn = w._active_conn
+        chart = conn.chart
+        for i in range(5):
+            w._on_conn_line(conn, f"temp:{20 + i} hum:40", "00:00:00.000")
+        w._on_conn_line(conn, "Free heap: 12345 bytes", "00:00:00.000")
+        assert set(chart._channels) == {"temp", "hum"} == chart._auto
+        assert list(chart._channels["temp"]["buf_v"]) == [20, 21, 22, 23, 24]
+
+        chart.keep_requested.emit("temp")
+        assert "temp" in conn.parser.channel_names() and "temp" not in chart._auto
+        w._on_conn_line(conn, "temp:30 hum:41", "00:00:00.000")
+        assert chart._channels["temp"]["buf_v"][-1] == 30
+        assert len(chart._channels["temp"]["buf_v"]) == 6   # parser only, not twice
+
+        chart.remove_channel("hum")                         # hide an auto series
+        w._on_conn_line(conn, "temp:31 hum:42", "00:00:00.000")
+        assert "hum" not in chart._channels
+
+        chart.set_quick_enabled(False)
+        w._on_conn_line(conn, "1,2,3", "00:00:00.000")
+        assert set(chart._channels) == {"temp"}
+    finally:
+        w.close()

@@ -37,6 +37,12 @@ The extractor auto-detects the common shapes:
 | `key=valueUNIT …` | `pv=43608mV 847mA` | see Unit below |
 | `key=value` | `rem_cap=500` | `500` |
 | JSON object in line | `[ts]{"x":1.2,"y":3.4}` | by dot-path key |
+| [Teleplot](https://github.com/nesnes/teleplot) | `>rpm:1627551892437:1500§rpm` | `1500` (the value, not the timestamp) |
+
+> **Just want a graph?** You may not need a channel at all — lines that are only
+> data (`12.5, 40, -3`, `temp:21.5 hum:40`, `>temp:21.5`) are plotted
+> automatically by [Quick Plot](Live-Views#quick-plot). Add a channel when you
+> want scaling, units, an indicator, or values pulled out of ordinary log lines.
 
 ### Using **Unit** to pick a token
 

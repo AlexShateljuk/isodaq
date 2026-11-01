@@ -17,12 +17,15 @@ Supported value formats (auto-detected):
   key=valueUNIT ...   →  pv=43608mV 847mA  (unit selects which token)
   key=value           →  rem_cap=500
   JSON object in line →  [ts]{"key": value, ...}
+  Teleplot            →  >key:value  /  >key:timestamp:value  (the value, not the ts)
 """
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass
+
+from core.quick_plot import teleplot_values
 
 # Matches: optional minus + (hex OR decimal/float) + optional unit letters
 _VALUE_WITH_UNIT = re.compile(
@@ -139,6 +142,9 @@ class DataParser:
     def remove_channel(self, idx: int) -> None:
         del self._channels[idx]
 
+    def channel_names(self) -> set[str]:
+        return {ch.name for ch in self._channels}
+
     # ── Parsing ───────────────────────────────────────────────────────────────
 
     def parse(self, line: str) -> dict[str, float]:
@@ -151,13 +157,16 @@ class DataParser:
         # Built-in key/value channels
         if self._channels:
             json_obj = _try_json(line)
+            teleplot = teleplot_values(line) if line.startswith(">") else None
             for ch in self._channels:
                 if not ch.enabled:
                     continue
                 if ch.prefix and ch.prefix not in line:
                     continue
                 raw = None
-                if json_obj is not None:
+                if teleplot is not None:
+                    raw = teleplot.get(ch.key)
+                if raw is None and json_obj is not None:
                     raw = _from_json(json_obj, ch.key)
                 if raw is None:
                     raw = _from_kv(line, ch.key, ch.unit)

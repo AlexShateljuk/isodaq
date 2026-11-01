@@ -27,6 +27,26 @@ Real-time scrolling line chart (pyqtgraph):
 - **PNG** exports the plot as an image; **CSV** exports the buffered data (a
   unified time index with one column per channel).
 
+### Quick Plot
+
+Lines that are **only data** are plotted straight away — no channel to set up:
+
+| Device prints | Series |
+|---------------|--------|
+| `12.5, 40, -3` (comma / space / tab separated) | `ch1`, `ch2`, `ch3` — like the Arduino Serial Plotter |
+| `temp:21.5 hum:40%` or `temp=21.5, rpm=1500` | `temp`, `hum` / `temp`, `rpm` |
+| `>temp:21.5` · `>temp:<ms>:21.5` · `>temp:21.5§°C` | `temp` — [Teleplot](https://github.com/nesnes/teleplot) format, so firmware already using a Teleplot library works unchanged |
+
+- The **whole line** must be data, so ordinary log lines
+  (`Free heap: 12345 bytes`, `I (123) wifi: connected`) are never plotted.
+  Teleplot text (`|t`), XY (`|xy`), no-plot (`|np`) and 3D lines are ignored.
+- Quick Plot series show a hollow **△** in the legend. **Right-click** one to
+  **Keep as Parsing channel** (it becomes a normal [channel](Data-Parser) you can
+  scale, put on an indicator and keep across restarts) or **Hide this series**.
+- A name that a Parsing channel already uses follows that channel instead.
+- **Auto** in the footer turns Quick Plot off (and removes its series) or back
+  on. Up to 16 series are added automatically.
+
 ## Indicators
 
 ![Indicators tab](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/tab-indicators.png)

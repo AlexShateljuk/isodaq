@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Quick Plot** — lines that are only data are graphed with no setup:
+  `12.5, 40, -3` (Arduino Serial Plotter style → `ch1…ch3`), `temp:21.5 hum:40`
+  or `temp=21.5, rpm=1500`. The whole line must be data, so ordinary log lines
+  are never plotted. Right-click a series in the legend to **keep** it as a
+  Parsing channel or hide it; **Auto** in the Graphs footer turns it off.
+- **Teleplot input** — `>name:value`, `>name:timestamp:value`, units (`§unit`)
+  and multi-point lines are understood by Quick Plot and by Parsing channels, so
+  firmware that already uses a Teleplot library works unchanged (text, XY and 3D
+  lines are ignored).
 - **Auto-reconnect** — when a link drops (board reset, cable re-plugged, network
   bridge restarted), the connection keeps its settings and retries every second
   (network/SSH every 3 s) until the device is back, then carries on in the same
@@ -40,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   editing a trigger.
 - A chart channel's legend entry was placed between the PNG and CSV buttons.
 - The font −/+ buttons in the `⋯` popover showed no text.
+- Parsing channel rows could be painted on top of each other after a change.
+- The editable baud box took keyboard focus at startup.
 
 ## [0.4.0] — 2026-11-01
 

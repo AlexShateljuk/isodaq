@@ -524,6 +524,7 @@ QPushButton#iconBtn {{
     color: {c['fg_dim']}; padding: 0;
 }}
 QPushButton#iconBtn:hover {{ color: {c['accent']}; background: transparent; }}
+QPushButton#iconBtn:checked {{ color: {c['accent']}; background: {c['bg3']}; border-radius: 3px; }}
 QPushButton#delBtn {{
     background: transparent; border: none;
     color: {c['err']}; padding: 0; font-weight: 700;

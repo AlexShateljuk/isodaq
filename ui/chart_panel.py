@@ -9,7 +9,7 @@ from collections import deque
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton,
                              QVBoxLayout, QWidget)
 
@@ -27,9 +27,14 @@ POINT_CHOICES = [("2k pts", 2_000), ("20k pts", 20_000), ("100k pts", 100_000),
 #: Curves are redrawn at most this often; samples are buffered in between.
 #: Redrawing per sample capped the whole app at a few hundred lines/s.
 REDRAW_MS = 33
+#: Quick Plot adds at most this many series on its own (CMP5).
+MAX_AUTO_CHANNELS = 16
 
 
 class ChartPanel(QWidget):
+    #: Legend → "Keep as Parsing channel" on a Quick Plot series.
+    keep_requested = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._channels: dict[str, dict] = {}
@@ -39,6 +44,10 @@ class ChartPanel(QWidget):
         self.window_sec = WINDOW_SEC     # visible time span (0 = whole buffer)
         self.max_points = MAX_POINTS     # samples kept per channel
         self.paused = False              # freeze the view; samples keep buffering
+        # Quick Plot (CMP5): series added automatically from data-only lines.
+        self.quick_enabled = True
+        self._auto: set[str] = set()       # names added by Quick Plot
+        self._hidden: set[str] = set()     # auto names the user removed
         self._build()
         self._redraw_timer = QTimer(self, interval=REDRAW_MS, timeout=self._redraw)
         self._redraw_timer.start()
@@ -59,7 +68,11 @@ class ChartPanel(QWidget):
         self._plot.setMouseEnabled(x=True, y=True)
 
         # Empty-state overlay — hidden once first channel is added
-        self._empty_label = QLabel("No channels yet\nAdd a channel in the Parsing panel\nor connect a device and send data")
+        self._empty_label = QLabel(
+            "No data to plot yet\n\n"
+            "Lines of numbers are plotted automatically:\n"
+            "12.5, 40, -3     temp:21.5 hum:40     >temp:21.5 (Teleplot)\n\n"
+            "or add a channel in the Parsing panel")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet(
             "color: rgba(255,255,255,0.18); font-size: 13px; line-height: 1.8;"
@@ -82,6 +95,15 @@ class ChartPanel(QWidget):
         self._legend_lay.setContentsMargins(8, 4, 8, 4)
         self._legend_lay.setSpacing(12)
         self._legend_lay.addStretch()
+
+        self._auto_btn = QPushButton("Auto")
+        self._auto_btn.setCheckable(True)
+        self._auto_btn.setChecked(True)
+        self._auto_btn.setToolTip(
+            "Quick Plot: plot data lines without setting up channels —\n"
+            "12.5, 40, -3   ·   temp:21.5 hum:40   ·   Teleplot >temp:21.5\n"
+            "Right-click a series in the legend to keep or hide it.")
+        self._auto_btn.toggled.connect(self.set_quick_enabled)
 
         # View controls (CMP14): time window, buffer size, pause, Y lock.
         self._win_combo = QComboBox()
@@ -107,7 +129,7 @@ class ChartPanel(QWidget):
         self._ylock_btn.setCheckable(True)
         self._ylock_btn.setToolTip("Lock the Y range at its current span (off = auto-scale)")
         self._ylock_btn.toggled.connect(self.set_y_locked)
-        for w, width in ((self._win_combo, 74), (self._pts_combo, 84),
+        for w, width in ((self._auto_btn, 40), (self._win_combo, 74), (self._pts_combo, 84),
                          (self._pause_btn, 30), (self._ylock_btn, 36)):
             w.setFixedHeight(20)
             w.setFixedWidth(width)
@@ -135,9 +157,16 @@ class ChartPanel(QWidget):
 
     # ── Channel management ─────────────────────────────────────────────────────
 
-    def add_channel(self, name: str, color: str = "") -> None:
+    def add_channel(self, name: str, color: str = "", auto: bool = False) -> None:
         if name in self._channels:
+            if not auto and name in self._auto:      # a Parsing channel took it over
+                self._auto.discard(name)
+                self._style_legend(name)
             return
+        if auto:
+            self._auto.add(name)
+        else:
+            self._hidden.discard(name)
         if not color:
             color = CHART_COLORS[self._color_idx % len(CHART_COLORS)]
             self._color_idx += 1
@@ -153,20 +182,76 @@ class ChartPanel(QWidget):
             "buf_v": deque(maxlen=self.max_points),
             "curve": curve,
         }
-        lbl = QLabel(f"▲ {name}")
+        lbl = QLabel()
         lbl.setObjectName(f"legend_{name}")
-        lbl.setStyleSheet(
-            f"color:{color};font-size:10px;"
-            "font-family:'JetBrains Mono','SF Mono','Consolas',monospace;"
-        )
+        lbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        lbl.customContextMenuRequested.connect(
+            lambda pos, n=name, w=lbl: self._legend_menu(n, w.mapToGlobal(pos)))
+        self._channels[name]["label"] = lbl
+        self._style_legend(name)
         # Legend entries sit left of the stretch; view controls stay right.
         self._legend_lay.insertWidget(len(self._channels) - 1, lbl)
         self._empty_label.setVisible(False)
+
+    def _style_legend(self, name: str) -> None:
+        ch = self._channels[name]
+        auto = name in self._auto
+        # Quick Plot series: hollow marker + italic until kept.
+        ch["label"].setText(f"{'△' if auto else '▲'} {name}")
+        ch["label"].setToolTip(
+            "Quick Plot series — right-click to keep it as a Parsing channel or hide it"
+            if auto else "")
+        ch["label"].setStyleSheet(
+            f"color:{ch['color']};font-size:10px;"
+            f"font-style:{'italic' if auto else 'normal'};"
+            "font-family:'JetBrains Mono','SF Mono','Consolas',monospace;"
+        )
+
+    def _legend_menu(self, name: str, pos) -> None:
+        if name not in self._auto:
+            return
+        from PyQt6.QtWidgets import QMenu
+
+        from core.quick_plot import keepable_key
+        menu = QMenu(self)
+        keep = menu.addAction("Keep as Parsing channel")
+        keep.setEnabled(keepable_key(name))
+        hide = menu.addAction("Hide this series")
+        chosen = menu.exec(pos)
+        if chosen is keep:
+            self.keep_requested.emit(name)
+        elif chosen is hide:
+            self.remove_channel(name)
+
+    # ── Quick Plot (CMP5) ──────────────────────────────────────────────────────
+
+    def quick_update(self, data: dict[str, float]) -> None:
+        """Plot values from a data-only line, adding series as they appear."""
+        fresh = [n for n in data if n not in self._channels and n not in self._hidden]
+        for name in fresh:
+            if len(self._auto) >= MAX_AUTO_CHANNELS:
+                break
+            self.add_channel(name, auto=True)
+        self.update(data)
+
+    def set_quick_enabled(self, on: bool) -> None:
+        """Off removes the automatic series (Parsing channels stay)."""
+        self.quick_enabled = on
+        if self._auto_btn.isChecked() != on:
+            self._auto_btn.setChecked(on)
+        if not on:
+            for name in list(self._auto):
+                self.remove_channel(name)
+            self._hidden.clear()
 
     def remove_channel(self, name: str) -> None:
         ch = self._channels.pop(name, None)
         if not ch:
             return
+        if name in self._auto:
+            self._auto.discard(name)
+            if self.quick_enabled:
+                self._hidden.add(name)      # don't re-add on the next line
         self._plot.removeItem(ch["curve"])
         if not self._channels:
             self._empty_label.setVisible(True)
