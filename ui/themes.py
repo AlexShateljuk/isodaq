@@ -97,6 +97,24 @@ def _ensure_arrows(c: dict[str, str]) -> tuple[str, str]:
     return p_dim.as_posix(), p_hover.as_posix()
 
 
+def install_font_fallbacks() -> None:
+    """Map the brand fonts onto whatever the OS actually has.
+
+    Qt style sheets only honour the *first* family in a ``font-family`` list,
+    so on a machine without JetBrains Mono the terminal silently dropped to the
+    proportional system UI font and columns stopped lining up. Registering
+    substitutions makes every ``'JetBrains Mono'`` / ``'IBM Plex Sans'``
+    reference (QSS and QFont alike) resolve to a real monospace / UI face.
+    """
+    from PyQt6.QtGui import QFont
+    QFont.insertSubstitutions("JetBrains Mono", [
+        "SF Mono", "Menlo", "Cascadia Code", "Consolas",
+        "DejaVu Sans Mono", "Liberation Mono", "Courier New"])
+    QFont.insertSubstitutions("IBM Plex Sans", [
+        "SF Pro Text", ".AppleSystemUIFont", "Segoe UI", "Inter",
+        "Helvetica Neue", "Noto Sans", "DejaVu Sans"])
+
+
 def build_stylesheet(theme: ThemeName = "vscode") -> str:
     c = _PALETTES.get(theme, _PALETTES["vscode"])
     url_dim, url_hover = _ensure_arrows(c)
@@ -137,6 +155,8 @@ QStatusBar {{
     font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
     font-size: 10px;
 }}
+QStatusBar::item {{ border: none; }}
+QStatusBar QLabel {{ padding: 0 8px; }}
 
 /* ── Tabs ───────────────────────────────────────────────── */
 QWidget#rightPanel {{ background: {c['bg2']}; }}
@@ -218,7 +238,9 @@ QWidget#toolDockBottom {{
 QPushButton#stripeBtn {{
     background: transparent; border: 1px solid transparent; border-radius: 3px;
     color: {c['fg_mid']}; font-size: 10px; letter-spacing: .04em;
-    padding: 4px 3px;
+    /* Horizontal padding becomes the *length* of a rotated side button, so it
+       is what separates adjacent labels on the left/right stripes. */
+    padding: 3px 9px;
 }}
 QPushButton#stripeBtn:hover {{ color: {c['fg']}; background: {c['bg3']}; }}
 QPushButton#stripeBtn:checked {{
@@ -242,6 +264,22 @@ QPushButton#iconAct {{
 }}
 QPushButton#iconAct:hover {{ color: {c['accent']}; border-color: {c['accent_brd']}; }}
 QPushButton#deviceRow {{ background: transparent; font-size: 11px; }}
+QFrame#commandPalette {{
+    background: {c['bg3']}; border: 1px solid {c['border2']}; border-radius: 8px;
+}}
+QLineEdit#paletteEdit {{
+    background: {c['bg']}; border: 1px solid {c['accent_brd']}; border-radius: 5px;
+    padding: 6px 10px; font-size: 13px;
+    font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;
+}}
+QListWidget#paletteList {{ background: transparent; border: none; font-size: 12px; }}
+QPushButton#hexToggle {{
+    background: transparent; border: 1px solid {c['border']}; border-radius: 3px;
+    color: {c['fg_dim']}; font-size: 10px; font-weight: 600; padding: 0;
+}}
+QPushButton#hexToggle:checked {{
+    color: {c['accent']}; background: {c['accent_bg']}; border-color: {c['accent_brd']};
+}}
 
 /* Density: IDE-scale rows inside tool windows (was desktop-app spacing) */
 QWidget[dock="true"] QPushButton {{ padding: 3px 9px; font-size: 11px; }}

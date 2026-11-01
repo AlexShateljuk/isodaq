@@ -25,9 +25,10 @@ own read loop rather than inheriting one.
 from __future__ import annotations
 
 import time
-from datetime import datetime
 
 from PyQt6.QtCore import QThread, pyqtSignal
+
+from core.stream_reader import LineSplitter, StreamReader, deliver
 
 DEFAULT_COMMAND = "cat /dev/ttyUSB0"
 _FLUSH_TIMEOUT = 0.25
@@ -37,6 +38,7 @@ class SSHReader(QThread):
     """Viewer of a remote command's output over SSH."""
 
     line_received  = pyqtSignal(str, str)   # (line, timestamp)
+    lines_received = pyqtSignal(object)     # [(line, ts, arrival, raw bytes), …] per read
     error_occurred = pyqtSignal(str)
     connected      = pyqtSignal(str, int)   # (label, 0)
     disconnected   = pyqtSignal()
@@ -161,44 +163,27 @@ class SSHReader(QThread):
 
     def _read_loop(self, chan):
         chan.settimeout(0.0)   # non-blocking recv
-        buf = bytearray()
-        buf_ts = 0.0
+        lines = LineSplitter(StreamReader.MAX_LINE_BYTES)
         while self._running:
             got = False
             try:
                 if chan.recv_ready():
-                    data = chan.recv(4096)
+                    data = chan.recv(65536)
                     if data == b"":
                         break            # remote closed stdout
-                    buf.extend(data)
-                    buf_ts = time.monotonic()
+                    deliver(self, lines.feed(data))
                     got = True
                 if chan.recv_stderr_ready():
-                    err = chan.recv_stderr(4096)
+                    err = chan.recv_stderr(65536)
                     if err:
-                        buf.extend(err)
-                        buf_ts = time.monotonic()
+                        deliver(self, lines.feed(err))
                         got = True
                 if chan.exit_status_ready() and not chan.recv_ready():
                     break                # command exited, drained
             except Exception:
                 break
 
-            while b"\n" in buf:
-                idx = buf.index(b"\n")
-                raw = buf[:idx].replace(b"\r", b"").decode("utf-8", errors="replace")
-                buf = buf[idx + 1:]
-                if raw:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    self.line_received.emit(raw, ts)
-
-            if buf and buf_ts > 0 and (time.monotonic() - buf_ts) >= _FLUSH_TIMEOUT:
-                raw = buf.replace(b"\r", b"").decode("utf-8", errors="replace").strip()
-                buf = bytearray()
-                buf_ts = 0.0
-                if raw:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    self.line_received.emit(raw, ts)
+            deliver(self, lines.flush_if_idle(_FLUSH_TIMEOUT))
 
             if not got:
                 time.sleep(0.02)

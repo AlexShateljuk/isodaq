@@ -13,6 +13,7 @@ from collections import deque
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
@@ -25,7 +26,11 @@ class AnalyticsPanel(QWidget):
         super().__init__(parent)
         self._t0 = time.monotonic()
         self._series: dict[str, dict] = {}   # name → {color, hits_t, count, curve}
+        self._dirty: set[str] = set()        # series with hits not yet drawn
         self._build()
+        # Hits are drawn on a timer, not per hit — a trigger storm would
+        # otherwise rebuild the whole staircase for every matching line.
+        QTimer(self, interval=100, timeout=self._flush).start()
 
     def _build(self):
         lay = QVBoxLayout(self)
@@ -124,7 +129,20 @@ class AnalyticsPanel(QWidget):
             return
         s["hits_t"].append(time.monotonic() - self._t0)
         s["count"] += 1
-        self._redraw(name, s)
+        self._dirty.add(name)
+
+    def _flush(self) -> None:
+        if not self._dirty or not self.isVisible():
+            return
+        for name in self._dirty:
+            s = self._series.get(name)
+            if s is not None:
+                self._redraw(name, s)
+        self._dirty.clear()
+
+    def showEvent(self, event):              # noqa: N802  (Qt naming)
+        super().showEvent(event)
+        self._flush()
 
     def _redraw(self, name: str, s: dict) -> None:
         times = list(s["hits_t"])

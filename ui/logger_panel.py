@@ -49,19 +49,29 @@ class LoggerPanel(QWidget):
         QTimer(self, interval=500, timeout=self._refresh).start()
 
     @staticmethod
-    def _lbl(text: str) -> QLabel:
+    def _lbl(text: str, width: int = 0) -> QLabel:
         w = QLabel(text)
         w.setObjectName("dimLabel")
+        if width:
+            w.setFixedWidth(width)   # aligned label column (IDE settings form)
         return w
 
     def _build(self):
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 10, 10, 10)
-        lay.setSpacing(8)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        # Cap the form width so it stays a compact column in the wide bottom dock
+        # instead of stretching fields edge to edge.
+        form = QWidget()
+        form.setMaximumWidth(460)
+        outer.addWidget(form)
+        outer.addStretch()
+        lay = QVBoxLayout(form)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(6)
 
         # Prefix
         r = QHBoxLayout(); r.setSpacing(6)
-        r.addWidget(self._lbl("Prefix"))
+        r.addWidget(self._lbl("Prefix", 48))
         self._prefix = QLineEdit("log_session")
         self._prefix.textChanged.connect(self._logger.set_prefix)
         r.addWidget(self._prefix)
@@ -69,11 +79,11 @@ class LoggerPanel(QWidget):
 
         # Format + dir
         r2 = QHBoxLayout(); r2.setSpacing(6)
-        r2.addWidget(self._lbl("Format"))
+        r2.addWidget(self._lbl("Format", 48))
         self._fmt = QComboBox()
         self._fmt.addItems(["csv", "json", "txt", "raw"])
         self._fmt.currentTextChanged.connect(self._logger.set_format)
-        r2.addWidget(self._fmt)
+        r2.addWidget(self._fmt, 1)
         dir_btn = QPushButton("Dir…"); dir_btn.setFixedWidth(60)
         dir_btn.setStyleSheet("padding:2px 6px;")
         dir_btn.setToolTip("Choose log output directory")
@@ -96,7 +106,7 @@ class LoggerPanel(QWidget):
         # Toggle button
         self._btn = QPushButton("▶  Start Log")
         self._btn.setObjectName("start")
-        self._btn.setFixedHeight(30)
+        self._btn.setFixedHeight(26)
         self._btn.clicked.connect(self._toggle)
         lay.addWidget(self._btn)
 
@@ -116,6 +126,7 @@ class LoggerPanel(QWidget):
         self._lbl_path = QLabel("—")
         self._lbl_path.setObjectName("path")
         lay.addWidget(self._lbl_path)
+        lay.addStretch()
 
     @staticmethod
     def _repolish(w) -> None:

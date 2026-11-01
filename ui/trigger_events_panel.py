@@ -5,7 +5,7 @@ Columns: Time | Trigger | Line | [one column per active parsed channel]
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -57,7 +57,14 @@ class TriggerEventsPanel(QWidget):
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        # ResizeToContents re-measured *every* row on each insert (O(rows) per
+        # event, ~8 ms at a few thousand rows); a sample sizes the columns.
+        hh.setResizeContentsPrecision(64)
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setDefaultSectionSize(22)   # IDE row density
+        # One scroll-to-bottom per paint, not per event.
+        self._scroll_timer = QTimer(self, singleShot=True, interval=50,
+                                    timeout=self._table.scrollToBottom)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setWordWrap(False)
@@ -99,8 +106,14 @@ class TriggerEventsPanel(QWidget):
 
     # ── Event logging ─────────────────────────────────────────────────────────
 
+    #: Oldest rows are dropped past this, so a trigger storm can't grow the
+    #: table (and the GUI cost of every insert) without bound.
+    MAX_ROWS = 5000
+
     def add_event(self, ts: str, trigger_name: str, line: str,
                   parsed: dict[str, float], line_id: int = -1) -> None:
+        if self._table.rowCount() >= self.MAX_ROWS:
+            self._table.removeRow(0)
         row = self._table.rowCount()
         self._table.insertRow(row)
         for col, text in enumerate([ts, trigger_name, line]):
@@ -114,9 +127,10 @@ class TriggerEventsPanel(QWidget):
             item = QTableWidgetItem(text)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row, len(_BASE_COLS) + i, item)
-        self._table.scrollToBottom()
-        self._count_lbl.setText(f"{row + 1} events")
-        self.count = row + 1
+        if not self._scroll_timer.isActive():
+            self._scroll_timer.start()
+        self.count += 1   # total seen, even after old rows are dropped
+        self._count_lbl.setText(f"{self.count} events")
         self.count_changed.emit(self.count)
 
     def clear(self) -> None:

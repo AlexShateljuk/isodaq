@@ -38,8 +38,9 @@ class SerialController(QObject):
         connection-state updates route to that connection (not whichever is
         active)."""
         mw = self._mw
-        reader.line_received.connect(
-            lambda line, ts, c=conn: mw._on_conn_line(c, line, ts))
+        # Batched: one queued signal per read, not per line (see stream_reader.deliver).
+        reader.lines_received.connect(
+            lambda batch, c=conn: mw._on_conn_lines(c, batch))
         reader.error_occurred.connect(lambda msg, c=conn: self.on_serial_error(c, msg))
         reader.connected.connect(lambda label, baud, c=conn: self.on_connected(c, label, baud))
         reader.disconnected.connect(lambda c=conn: self.on_disconnected(c))
@@ -123,6 +124,8 @@ class SerialController(QObject):
         mw = self._mw
         label = f"{port} · {baud}" if baud else port
         mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
+        conn.failed = False
+        conn.session_sec = 0
         conn.name = port                       # tab reflects what it's attached to
         mw._update_conn_tab(conn)              # tab state dot always
         if conn is mw._active_conn:            # button/statusbar only for active
@@ -140,11 +143,17 @@ class SerialController(QObject):
             mw._conn_btn.setText(tr("Connect"))
             mw._conn_btn.setObjectName("connectBtn")
             mw._repolish(mw._conn_btn)
-            mw._sb_conn.setText("● " + tr("Disconnected"))
-            mw._sb_conn.setStyleSheet(f"color:{_win.C_ERR.name()}")
+            mw._refresh_conn_state()
 
     def on_serial_error(self, conn, msg: str) -> None:
+        # Any transport error marks the connection failed (refused / link lost)
+        # until it next connects; a clean user disconnect leaves it idle.
+        conn.errors += 1
+        conn.failed = True
         self._mw._log("ERR", msg, _win.C_ERR, conn=conn)
+        self._mw._update_conn_tab(conn)
+        if conn is self._mw._active_conn:
+            self._mw._refresh_conn_state()
 
     # ── SSH saved sessions ─────────────────────────────────────────────────────
 

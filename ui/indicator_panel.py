@@ -157,6 +157,11 @@ class _IndicatorCard(QFrame):
         self.setToolTip("Double-click to configure thresholds")
 
     def _set_color(self, color: str):
+        # setStyleSheet re-polishes the widget — far too costly per sample, so
+        # only do it when the threshold colour actually changes.
+        if getattr(self, "_color_now", None) == color:
+            return
+        self._color_now = color
         self._val.setStyleSheet(
             f"font-family:'JetBrains Mono';font-size:17px;"
             f"font-weight:700;color:{color};")

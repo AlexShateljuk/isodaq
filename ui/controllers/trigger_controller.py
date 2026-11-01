@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
 import ui.main_window as _win   # colour globals (runtime access only)
@@ -54,17 +54,11 @@ class TriggerController(QObject):
         logging and notifications fire regardless of which tab is active; the
         flash goes into the matching connection's own terminal."""
         mw = self._mw
-        term = mw._terminals[conn.id]
         # ── Flash: highlighted banner in the connection's terminal ────────────
+        # Queued with the terminal's batched lines so it stays in order.
         if trigger.action_flash:
-            cursor = term.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(trigger.color).darker(280))
-            fmt.setForeground(QColor(trigger.color))
-            cursor.insertText(f"\n⚡ TRIGGER [{trigger.name}]: {line}\n", fmt)
-            if conn is mw._active_conn and mw._chk_auto.isChecked():
-                term.ensureCursorVisible()
+            c = QColor(trigger.color)
+            mw._log_banner(conn, f"⚡ TRIGGER [{trigger.name}]: {line}", c, c.darker(280))
 
         # ── Log: write trigger marker to this connection's sinks ──────────────
         if trigger.action_log:

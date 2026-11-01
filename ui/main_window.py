@@ -65,7 +65,7 @@ from ui.chart_panel import ChartPanel
 from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
 from ui.tool_window import StripeBar, ToolDock
-from ui.themes import build_stylesheet, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
+from ui.themes import build_stylesheet, install_font_fallbacks, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
 from ui.controllers.dev_tools import DevTools
@@ -82,6 +82,10 @@ C_OK  = QColor("#22c55e")
 C_ERR = QColor("#ef4444")
 C_DIM = QColor("#3e4460")
 C_FG  = QColor("#d4d4d4")
+
+
+#: Printable ASCII stays, everything else shows as "." in the HEX view's text column.
+_HEX_ASCII = bytes(b if 0x20 <= b < 0x7F else 0x2E for b in range(256))
 
 
 class _FloatWindow(QWidget):
@@ -194,7 +198,6 @@ class MainWindow(QMainWindow):
         self._terminal_font_size: int = 11
         self._scrollback_limit: int = 5000
         self._current_theme: str = "vscode"
-        self._session_sec = 0
         self._right_panel_visible: bool = False   # collapsed by default
         self._user_scrolling: bool = False
         self._mode: str = "advanced"
@@ -341,6 +344,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         """Assembles the full window: stylesheet, menu, left/right splitter, statusbar."""
+        install_font_fallbacks()   # before any widget resolves a font
         QApplication.instance().setStyleSheet(build_stylesheet(self._current_theme))
         self._build_menu()
 
@@ -417,6 +421,11 @@ class MainWindow(QMainWindow):
         device_m.addAction(QAction(tr("Refresh ports"), self, triggered=self._serial.refresh_ports))
 
         view_m = mb.addMenu(tr("View"))
+        view_m.addAction(QAction(tr("Command Palette…"), self, shortcut="Ctrl+Shift+P",
+                                 triggered=self._open_palette))
+        # Ctrl/Cmd+K too — the other common palette key (Slack, Linear, VS Code).
+        from PyQt6.QtGui import QKeySequence, QShortcut
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_palette)
         view_m.addAction(QAction(tr("Find…"), self, shortcut="Ctrl+F",
                                  triggered=self._search.open))
         view_m.addSeparator()
@@ -480,16 +489,25 @@ class MainWindow(QMainWindow):
         self._conn_bar.setObjectName("connTabs")
         self._conn_bar.setExpanding(False)
         self._conn_bar.setDrawBase(False)
-        self._conn_bar.setElideMode(Qt.TextElideMode.ElideRight)
+        # No eliding: Qt's tab size hint undercounts the close button + QSS
+        # padding, so names were cut inside tabs that had room. Labels are short
+        # (Connection.short_name); overflow scrolls instead, as in IDE tab strips.
+        self._conn_bar.setElideMode(Qt.TextElideMode.ElideNone)
+        self._conn_bar.setUsesScrollButtons(True)
         self._conn_bar.currentChanged.connect(self._on_conn_tab_changed)
-        lay.addWidget(self._conn_bar, 1)
+        lay.addWidget(self._conn_bar, 0)
+        # Let the strip shrink below its hint so scroll buttons appear on overflow.
+        self._conn_bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
+        # "+" sits right after the last tab and the strip is left-aligned, as
+        # in IDE editor tabs (macOS would otherwise centre a stretched QTabBar).
         add_btn = QPushButton("+")
         add_btn.setObjectName("addConnBtn")
-        add_btn.setFixedSize(26, 26)
+        add_btn.setFixedSize(22, 22)
         add_btn.setToolTip(tr("Add a connection"))
         add_btn.clicked.connect(self._add_connection)
         lay.addWidget(add_btn)
+        lay.addStretch()
 
         self._add_conn_tab(self._active_conn)
         return bar
@@ -524,10 +542,18 @@ class MainWindow(QMainWindow):
         idx = self._conn_tab_index(conn.id)
         if idx < 0:
             return
-        running = conn.reader.isRunning()
-        self._conn_bar.setTabText(idx, conn.name)
-        self._conn_bar.setTabTextColor(idx, conn.color if running else C_DIM)
+        self._conn_bar.setTabText(idx, conn.short_name)
+        self._conn_bar.setTabToolTip(idx, conn.name)
+        self._conn_bar.setTabTextColor(idx, self._conn_state_color(conn))
         self._refresh_devices_panel()
+
+    @staticmethod
+    def _conn_state_color(conn) -> QColor:
+        """Connected → the connection's tint; failed / link lost → error red;
+        idle → dim."""
+        if conn.reader.isRunning():
+            return conn.color
+        return C_ERR if conn.failed else C_DIM
 
     def _add_connection(self) -> None:
         """Create a new connection (its own terminal + transport) and focus it."""
@@ -581,8 +607,15 @@ class MainWindow(QMainWindow):
     def _set_active_connection(self, conn) -> None:
         if conn is self._active_conn:
             return
+        self._save_toolbar(self._active_conn)
         self._active_conn = conn
+        self._restore_toolbar(conn)
         self._terminal_stack.setCurrentWidget(self._terminals[conn.id])
+        if self._chk_auto.isChecked():   # show the newest output, not where it was
+            if conn.term_pending:
+                self._flush_terminal(conn)
+            sb =self._terminals[conn.id].verticalScrollBar()
+            sb.setValue(sb.maximum())
         # Swap the per-connection right-side panels to this connection's.
         self._chart_stack.setCurrentWidget(conn.chart)
         self._indicator_stack.setCurrentWidget(conn.indicator)
@@ -591,8 +624,30 @@ class MainWindow(QMainWindow):
         self._logger_stack.setCurrentWidget(conn.logger_panel)
         self._events_stack.setCurrentWidget(conn.events)
         self._analytics_stack.setCurrentWidget(conn.analytics)
+        self._on_events_count(conn, conn.events.count)
         self._refresh_conn_state()
         self._refresh_devices_panel()
+
+    def _save_toolbar(self, conn) -> None:
+        """Remember the toolbar selection as *conn*'s own (SER3)."""
+        conn.toolbar = {"transport": self._transport_combo.currentText(),
+                        "target": self._port_combo.currentText(),
+                        "baud": self._baud_combo.currentText()}
+
+    def _restore_toolbar(self, conn) -> None:
+        """Show *conn*'s transport / target / baud in the shared toolbar. A new
+        connection has none saved yet and inherits the current selection."""
+        tb = conn.toolbar
+        if not tb:
+            return
+        self._transport_combo.setCurrentText(tb["transport"])
+        if self._port_combo.isEditable():
+            self._port_combo.setEditText(tb["target"])
+        else:
+            i = self._port_combo.findText(tb["target"])
+            if i >= 0:
+                self._port_combo.setCurrentIndex(i)
+        self._baud_combo.setCurrentText(tb["baud"])
 
     def _refresh_conn_state(self) -> None:
         """Reflect the active connection's reader state on the Connect button +
@@ -606,10 +661,24 @@ class MainWindow(QMainWindow):
             self._sb_conn.setText(f"● {conn.name}")
             self._sb_conn.setStyleSheet(f"color:{C_OK.name()}")
         else:
-            self._sb_conn.setText("● " + tr("Disconnected"))
-            self._sb_conn.setStyleSheet(f"color:{C_ERR.name()}")
+            self._sb_conn.setText("● " + (tr("Connection failed") if conn.failed
+                                          else tr("Disconnected")))
+            self._sb_conn.setStyleSheet(f"color:{(C_ERR if conn.failed else C_DIM).name()}")
         self._sb_rx.setText(f"RX: {self._fmt_bytes(conn.rx_bytes)}")
         self._sb_tx.setText(f"TX: {self._fmt_bytes(conn.tx_bytes)}")
+        self._refresh_live_stats()
+
+    def _refresh_live_stats(self) -> None:
+        """Rate / errors / session clock of the active connection."""
+        conn = self._active_conn
+        running = conn.reader.isRunning()
+        self._sb_rate.setText(tr("Rate: {n} lines/s").format(n=f"{conn.rate:,}")
+                              if running else tr("Rate: —"))
+        self._sb_err.setText(tr("Errors: {n}").format(n=conn.errors))
+        self._sb_err.setStyleSheet(f"color:{C_ERR.name()}" if conn.errors else "")
+        t = conn.session_sec
+        self._sb_sess.setText(tr("Session: {t}").format(
+            t=f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"))
 
     def _add_terminal(self, conn) -> QTextEdit:
         """Create, configure and register a terminal widget for *conn*."""
@@ -644,7 +713,7 @@ class MainWindow(QMainWindow):
 
         self._transport_combo = QComboBox()
         self._transport_combo.addItems(["Serial", "Network", "SSH"])
-        self._transport_combo.setFixedWidth(94)
+        self._transport_combo.setFixedWidth(108)   # fits "Network" in the mono font
         self._transport_combo.setToolTip(
             tr("Transport: local serial, TCP/RFC2217 network, or SSH"))
         lay.addWidget(self._transport_combo)
@@ -657,8 +726,9 @@ class MainWindow(QMainWindow):
         self._port_combo.customContextMenuRequested.connect(self._on_port_context_menu)
         lay.addWidget(self._port_combo, 1)
 
-        self._refresh_btn = QPushButton("⟳")
-        self._refresh_btn.setFixedWidth(34)
+        self._refresh_btn = QPushButton("↻")
+        self._refresh_btn.setFixedWidth(28)
+        self._refresh_btn.setStyleSheet("font-size:14px;padding:0;")
         self._refresh_btn.setToolTip(tr("Rescan serial ports"))
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         lay.addWidget(self._refresh_btn)
@@ -777,7 +847,8 @@ class MainWindow(QMainWindow):
         font_row.addStretch()
         clr = QPushButton(tr("Clear"))
         clr.setFixedHeight(22)
-        clr.clicked.connect(lambda: (self._terminal.clear(), menu.close()))
+        clr.clicked.connect(lambda: (self._active_conn.term_pending.clear(),
+                                     self._terminal.clear(), menu.close()))
         font_row.addWidget(clr)
         grid.addLayout(font_row, 6, 0, 1, 2)
 
@@ -813,7 +884,7 @@ class MainWindow(QMainWindow):
                 "socket://192.168.1.50:23   ·   rfc2217://host:4001")
             combo.setEditText(self._net_url)
             self._refresh_btn.setEnabled(False)
-            self._refresh_btn.setText("⟳")
+            self._refresh_btn.setText("↻")
         elif kind == "SSH":
             combo.setEditable(False)
             self._serial.populate_ssh_combo()
@@ -823,7 +894,7 @@ class MainWindow(QMainWindow):
         else:  # Serial
             combo.setEditable(False)
             self._refresh_btn.setEnabled(True)
-            self._refresh_btn.setText("⟳")
+            self._refresh_btn.setText("↻")
             self._refresh_btn.setToolTip(tr("Rescan serial ports"))
             self._serial.refresh_ports()
 
@@ -881,6 +952,15 @@ class MainWindow(QMainWindow):
         self._cmd_edit.installEventFilter(self._serial)
         self._cmd_edit.returnPressed.connect(self._serial.send_command)
         cr.addWidget(self._cmd_edit)
+        # One-click HEX view (mirrors the HEX option in the ⋯ popover).
+        self._hex_btn = QPushButton("HEX")
+        self._hex_btn.setObjectName("hexToggle")
+        self._hex_btn.setCheckable(True)
+        self._hex_btn.setFixedWidth(44)
+        self._hex_btn.setToolTip(tr("Show received data as a hex dump (offset · bytes · ASCII)"))
+        self._hex_btn.toggled.connect(self._chk_hex.setChecked)
+        self._chk_hex.toggled.connect(self._hex_btn.setChecked)
+        cr.addWidget(self._hex_btn)
         self._eol_combo = QComboBox()
         self._eol_combo.addItems(["\\r\\n","\\n","\\r","None"])
         self._eol_combo.setFixedWidth(66)
@@ -958,6 +1038,9 @@ class MainWindow(QMainWindow):
         self._sidebar_sections: dict = {}
         # Now that the stacks exist, build the first connection's panels.
         self._make_display_panels(self._active_conn)
+        # The first connection's tab was added before the Devices list
+        # existed, so populate it now.
+        self._refresh_devices_panel()
 
     def _toggle_tool(self, key: str) -> None:
         """Stripe click: open the tool, or collapse its dock if already shown."""
@@ -1084,9 +1167,18 @@ class MainWindow(QMainWindow):
             row.setCheckable(True)
             row.setChecked(conn is self._active_conn)
             running = conn.reader.isRunning()
+            active = conn is self._active_conn
+            # Connected → the connection's tint; failed → red; idle → dim, except
+            # the selected row, which keeps full contrast on its highlight.
+            fg = self._conn_state_color(conn)
+            if fg == C_DIM and active:
+                fg = C_FG
+            mark = "●" if running else ("✕" if conn.failed else "○")
+            row.setText(f"{mark}  {conn.short_name}")
+            row.setToolTip(conn.name)
             row.setStyleSheet(
                 f"text-align:left;padding:4px 10px;border:none;"
-                f"color:{(conn.color if running else C_DIM).name()};")
+                f"color:{fg.name()};")
             row.clicked.connect(
                 lambda _=False, c=conn: self._conn_bar.setCurrentIndex(
                     self._conn_tab_index(c.id)))
@@ -1147,7 +1239,62 @@ class MainWindow(QMainWindow):
         sb.setFixedHeight(26)
         sb.clicked.connect(self._serial.send_custom)
         lay.addWidget(sb)
+        lay.addStretch()   # keep the form at the top of a tall dock
         return w
+
+    # ── Command palette ───────────────────────────────────────────────────────
+
+    def _open_palette(self) -> None:
+        from ui.command_palette import CommandPalette
+        CommandPalette(self, theme_colors(self._current_theme)).open_with(
+            self._palette_commands())
+
+    def _palette_commands(self) -> list:
+        """Everything the palette can run, gathered fresh on each open."""
+        from ui.command_palette import Command, menu_commands
+
+        def on_off(chk) -> str:
+            return tr("on → off") if chk.isChecked() else tr("off → on")
+
+        running = self._reader.isRunning()
+        cmds = [
+            Command(tr("Disconnect") if running else tr("Connect"), tr("Connection"),
+                    self._serial.toggle_connection),
+            Command(tr("New connection"), tr("Connection"), self._add_connection),
+            Command(tr("Rescan serial ports"), tr("Connection"), self._serial.refresh_ports),
+            Command(tr("Clear terminal"), tr("Terminal"),
+                    lambda: (self._active_conn.term_pending.clear(), self._terminal.clear())),
+            Command(f"{tr('HEX view')}  ({on_off(self._chk_hex)})", tr("Terminal"),
+                    self._chk_hex.toggle),
+            Command(f"{tr('Timestamps')}  ({on_off(self._chk_ts)})", tr("Terminal"),
+                    self._chk_ts.toggle),
+            Command(f"{tr('Autoscroll')}  ({on_off(self._chk_auto)})", tr("Terminal"),
+                    self._chk_auto.toggle),
+            Command(f"{tr('Echo sent commands')}  ({on_off(self._chk_echo)})", tr("Terminal"),
+                    self._chk_echo.toggle),
+            Command(tr("Increase font size"), tr("Terminal"), lambda: self._change_font_size(+1)),
+            Command(tr("Decrease font size"), tr("Terminal"), lambda: self._change_font_size(-1)),
+            Command(tr("Detach current tool window"), tr("View"), self._float_current_tab),
+        ]
+        if len(self._connections) > 1:
+            cmds.append(Command(tr("Close this connection"), tr("Connection"),
+                                lambda: self._close_conn_by_id(self._active_conn.id)))
+        for conn in self._connections:
+            if conn is not self._active_conn:
+                cmds.append(Command(conn.short_name, tr("Switch to"),
+                                    lambda c=conn: self._conn_bar.setCurrentIndex(
+                                        self._conn_tab_index(c.id))))
+        for key, _edge, title in self.TOOLS:
+            cmds.append(Command(tr(title), tr("Show tool window"),
+                                lambda k=key: self._show_tool(k)))
+        cmds += menu_commands(self.menuBar())
+        return cmds
+
+    def _show_tool(self, key: str) -> None:
+        """Open a tool window (never closes it, unlike a stripe click)."""
+        dock, _ = self._dock_for(self._tool_edge[key])
+        if not (dock.isVisible() and dock.current == key):
+            self._toggle_tool(key)
 
     def _show_about(self):
         ver = QApplication.instance().applicationVersion()
@@ -1168,6 +1315,9 @@ class MainWindow(QMainWindow):
         self._sb_rx   = QLabel("RX: 0 B")
         self._sb_tx   = QLabel("TX: 0 B")
         self._sb_rate = QLabel(tr("Rate: —"))
+        # Room for "Rate: 99,999 lines/s" so the label doesn't clip at high rates.
+        self._sb_rate.setMinimumWidth(self._sb_rate.fontMetrics().horizontalAdvance(
+            tr("Rate: {n} lines/s").format(n="99,999")) + 20)
         self._sb_err  = QLabel(tr("Errors: 0"))
         self._sb_sess = QLabel(tr("Session: {t}").format(t="00:00:00"))
         self._sb_conn = QLabel("● " + tr("Disconnected"))
@@ -1189,6 +1339,9 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         """Wires Qt signals from SerialReader, TriggerEngine and MacroRunner to GUI slots."""
         self._chk_auto.stateChanged.connect(self._on_autoscroll_toggled)
+        self._chk_hex.toggled.connect(lambda on: self._log(
+            "SYS", tr("HEX view on — new data is shown as a hex dump.") if on
+            else tr("HEX view off."), C_SYS))
         # Terminal scroll tracking is wired per-terminal in _add_terminal (SER3).
         # The active connection's reader (line_received + state) is wired here,
         # capturing its owning connection so RX routes correctly (SER3).
@@ -1218,7 +1371,61 @@ class MainWindow(QMainWindow):
         connection's pipeline."""
         self._on_conn_line(self._active_conn, line, ts)
 
-    def _on_conn_line(self, conn, line: str, ts: str):
+    #: GUI time spent on received lines per drain tick; the rest of the tick is
+    #: left for painting/input, so the window never freezes under load.
+    RX_BUDGET_S = 0.012
+    #: Lines queued longer than this make a connection "overloaded": they are
+    #: still logged and trigger-checked, but not drawn (terminal/charts), so the
+    #: screen stays close to live instead of drifting seconds behind.
+    RX_MAX_LAG_S = 1.0
+
+    def _on_conn_lines(self, conn, batch) -> None:
+        """A reader's batch of ``(line, timestamp, arrival)`` (one per read).
+        Only queued here; :meth:`_drain_rx` processes it on a time budget."""
+        conn.rx_backlog.extend(batch)
+
+    def _drain_rx(self) -> None:
+        """Process queued RX lines for every connection, round-robin, within
+        :attr:`RX_BUDGET_S`. Whatever does not fit waits for the next tick —
+        a burst (or a stall such as a theme switch) can no longer turn into a
+        multi-second freeze, because painting happens between ticks."""
+        import time as _t
+        deadline = _t.perf_counter() + self.RX_BUDGET_S
+        busy = [c for c in self._connections if c.rx_backlog]
+        for conn in busy:
+            self._shed_overload(conn)
+        while busy and _t.perf_counter() < deadline:
+            for conn in list(busy):
+                q = conn.rx_backlog
+                for _ in range(min(200, len(q))):
+                    line, ts, _arrival, raw = q.popleft()
+                    self._on_conn_line(conn, line, ts, raw)
+                if not q:
+                    busy.remove(conn)
+                    if conn.rx_shed:
+                        self._log("SYS", f"Display caught up — {conn.rx_shed:,} lines were "
+                                  "logged and trigger-checked but not drawn (overload).",
+                                  C_SYS, conn=conn)
+                        conn.rx_shed = 0
+        self._sb_rx.setText(f"RX: {self._fmt_bytes(self._active_conn.rx_bytes)}")
+
+    def _shed_overload(self, conn) -> None:
+        """Keep the data, drop the drawing: lines queued longer than
+        :attr:`RX_MAX_LAG_S` are written to the logger and checked by triggers
+        (cheap), skipping the terminal / parser / charts (expensive)."""
+        import time as _t
+        q = conn.rx_backlog
+        cutoff = _t.monotonic() - self.RX_MAX_LAG_S
+        while q and q[0][2] < cutoff:
+            line, ts, _arrival, raw = q.popleft()
+            conn.hex_offset += len(raw)   # keep HEX offsets true to the stream
+            conn.rx_bytes += len(line.encode())
+            conn.rx_lines += 1
+            conn.logger.write_line(line, ts)
+            conn.engine.check(line, ts)
+            conn.rx_shed += 1
+
+    def _on_conn_line(self, conn, line: str, ts: str, raw: bytes | None = None):
         """RX pipeline for a specific source connection (GUI thread, queued).
 
         Data (log, terminal, line-identity, parse) always runs against *conn*.
@@ -1228,8 +1435,7 @@ class MainWindow(QMainWindow):
         is_active = conn is self._active_conn
 
         conn.rx_bytes += len(line.encode())
-        if is_active:
-            self._sb_rx.setText(f"RX: {self._fmt_bytes(conn.rx_bytes)}")
+        conn.rx_lines += 1
 
         # Log (non-blocking — goes to queue)
         conn.logger.write_line(line, ts)
@@ -1238,7 +1444,7 @@ class MainWindow(QMainWindow):
         # Logging before the trigger check gives this line a stable block id
         # that a trigger event can later jump back to (F2).
         log_color = match_log_color(line, self._log_colorizer_enabled)
-        self._log("RX", line, C_RX, ts, text_color=log_color, conn=conn)
+        self._log("RX", line, C_RX, ts, text_color=log_color, conn=conn, raw=raw)
         conn.current_rx_line_id = conn.last_rx_line_id
 
         # Check triggers on the source connection's own engine — "fire always"
@@ -1404,51 +1610,121 @@ class MainWindow(QMainWindow):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _log(self, direction: str, text: str, color: QColor, ts: str | None = None,
-             text_color: QColor | None = None, conn=None):
-        # Route to a specific connection's terminal + line-identity; default is
-        # the active connection (SER3). SYS/ERR/TX callers pass no conn → active.
-        conn = conn or self._active_conn
-        term = self._terminals[conn.id]
+             text_color: QColor | None = None, conn=None, raw: bytes | None = None):
+        """Queue one terminal line for *conn* (default: the active connection).
 
+        Lines are written in batches by :meth:`_flush_terminals` (~30 fps)
+        instead of one QTextDocument edit per line — per-line edits capped the
+        whole app at a few hundred lines/s and froze the window at high baud.
+        The line's identity (F2 jump target) is assigned here, immediately, so
+        trigger events can reference it before it is painted."""
+        conn = conn or self._active_conn
         if not ts and self._chk_ts.isChecked():
             from datetime import datetime
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-
-        cursor = term.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-
-        dim_fmt = QTextCharFormat()
-        dim_fmt.setForeground(C_DIM)
-
-        dir_fmt = QTextCharFormat()
-        dir_fmt.setForeground(color)
-        dir_fmt.setFontWeight(700)
-
-        txt_fmt = QTextCharFormat()
-        if text_color is not None:
-            txt_fmt.setForeground(text_color)
-        else:
-            txt_fmt.setForeground(C_FG if direction in ("RX", "SYS") else color)
-
-        if self._chk_ts.isChecked() and ts:
-            cursor.insertText(f"{ts}  ", dim_fmt)
-        cursor.insertText(f"{direction:<3}  ", dir_fmt)
-        cursor.insertText(text, txt_fmt)
-        # Tag this line's block with a stable id so events can jump to it (F2)
         conn.line_seq += 1
-        cursor.block().setUserState(conn.line_seq)
         if direction == "RX":
             conn.last_rx_line_id = conn.line_seq
-        cursor.insertText("\n", txt_fmt)
+        offset = -1
+        if raw is not None:   # received bytes: remember their stream offset (HEX view)
+            offset = conn.hex_offset
+            conn.hex_offset += len(raw)
+        conn.term_pending.append(
+            ("line", conn.line_seq, ts if self._chk_ts.isChecked() else "",
+             direction, text, color, text_color, raw, offset))
 
-        # Limit scrollback to configured limit — must happen BEFORE ensureCursorVisible
-        # so the trim doesn't shift the viewport after the scroll-to-bottom.
+    @staticmethod
+    def _insert_hex(cursor, raw: bytes, offset: int, indent: str,
+                    dim_fmt, hex_fmt, ascii_fmt) -> None:
+        """Classic hex dump of one received chunk: ``offset  16 bytes  |ascii|``.
+        The first row follows the timestamp/direction prefix; continuation rows
+        are indented to line up under it."""
+        for row in range(0, len(raw), 16):
+            part = raw[row:row + 16]
+            if row:
+                cursor.insertText("\n" + indent, dim_fmt)
+            hx = part[:8].hex(" ").upper()
+            if len(part) > 8:
+                hx += "  " + part[8:].hex(" ").upper()
+            cursor.insertText(f"{offset + row:08X}  ", dim_fmt)
+            cursor.insertText(hx.ljust(49), hex_fmt)
+            cursor.insertText(" |", dim_fmt)
+            cursor.insertText(part.translate(_HEX_ASCII).decode("ascii"), ascii_fmt)
+            cursor.insertText("|", dim_fmt)
+
+    def _log_banner(self, conn, text: str, fg: QColor, bg: QColor) -> None:
+        """Queue a highlighted banner (trigger flash) in order with the lines."""
+        conn.term_pending.append(("banner", text, fg, bg))
+
+    def _flush_terminals(self) -> None:
+        for conn in self._connections:
+            if conn.term_pending:
+                self._flush_terminal(conn)
+
+    def _flush_terminal(self, conn) -> None:
+        """Write *conn*'s queued lines into its terminal as one edit block."""
+        pending, conn.term_pending = conn.term_pending, []
+        # Under overload, lines beyond the scrollback would be trimmed right
+        # after being laid out — skip them instead (they are still logged,
+        # parsed and trigger-checked; only the on-screen copy is dropped).
+        if len(pending) > self._scrollback_limit:
+            pending = pending[-self._scrollback_limit:]
+        term = self._terminals[conn.id]
+
+        dim_fmt = QTextCharFormat(); dim_fmt.setForeground(C_DIM)
+        fg_fmt = QTextCharFormat(); fg_fmt.setForeground(C_FG)
+        fmt_cache: dict[tuple, QTextCharFormat] = {}
+
+        def fmt(color: QColor, bold: bool = False, bg: QColor | None = None):
+            key = (color.rgba(), bold, bg.rgba() if bg is not None else None)
+            f = fmt_cache.get(key)
+            if f is None:
+                f = fmt_cache[key] = QTextCharFormat()
+                f.setForeground(color)
+                if bold:
+                    f.setFontWeight(700)
+                if bg is not None:
+                    f.setBackground(bg)
+            return f
+
+        hex_mode = self._chk_hex.isChecked()
+        cursor = QTextCursor(term.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.beginEditBlock()
+        for item in pending:
+            if item[0] == "banner":
+                _, text, fg, bg = item
+                cursor.insertText(f"\n{text}\n", fmt(fg, bg=bg))
+                continue
+            _, seq, ts, direction, text, color, text_color, raw, offset = item
+            if ts:
+                cursor.insertText(f"{ts}  ", dim_fmt)
+            cursor.insertText(f"{direction:<3}  ", fmt(color, bold=True))
+            if hex_mode and raw:
+                self._insert_hex(cursor, raw, offset, " " * (len(ts) + 7 if ts else 5),
+                                 dim_fmt, fg_fmt, fmt(color))
+                cursor.block().setUserState(seq)
+                cursor.insertText("\n", fg_fmt)
+                continue
+            if text_color is not None:
+                txt_fmt = fmt(text_color)
+            else:
+                txt_fmt = fg_fmt if direction in ("RX", "SYS") else fmt(color)
+            cursor.insertText(text, txt_fmt)
+            # Tag this line's block with its stable id so events can jump to it (F2)
+            cursor.block().setUserState(seq)
+            cursor.insertText("\n", txt_fmt)
+        cursor.endEditBlock()
+
+        # Limit scrollback — before the scroll-to-bottom so the trim doesn't
+        # shift the viewport afterwards.
         doc = term.document()
-        if doc.lineCount() > self._scrollback_limit:
+        excess = doc.blockCount() - self._scrollback_limit
+        if excess > 0:
             cur = QTextCursor(doc)
             cur.movePosition(QTextCursor.MoveOperation.Start)
             cur.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.KeepAnchor,
-                             max(1, self._scrollback_limit // 10))
+                             excess + self._scrollback_limit // 10)
             cur.removeSelectedText()
 
         # Autoscroll only the visible (active) terminal.
@@ -1471,19 +1747,32 @@ class MainWindow(QMainWindow):
         t.timeout.connect(self._tick_session)
         t.start()
 
+        # Received-line drain (see _drain_rx): budgeted per tick.
+        self._rx_timer = QTimer(self)
+        self._rx_timer.setInterval(15)
+        self._rx_timer.timeout.connect(self._drain_rx)
+        self._rx_timer.start()
+
+        # Terminal batch writer (see _log): ~30 fps.
+        self._term_timer = QTimer(self)
+        self._term_timer.setInterval(33)
+        self._term_timer.timeout.connect(self._flush_terminals)
+        self._term_timer.start()
+
         t2 = QTimer(self)
         t2.setInterval(2000)
         t2.timeout.connect(self._trigger_panel.refresh_hits)
         t2.start()
 
     def _tick_session(self):
-        """Increments the session clock every second while the port is connected."""
-        if self._reader.isRunning():
-            self._session_sec += 1
-            h = self._session_sec // 3600
-            m = (self._session_sec % 3600) // 60
-            s = self._session_sec % 60
-            self._sb_sess.setText(tr("Session: {t}").format(t=f"{h:02d}:{m:02d}:{s:02d}"))
+        """Once a second: advance each connected device's session clock and
+        line rate, then show the active one's in the status bar."""
+        for conn in self._connections:
+            mark = getattr(conn, "_rate_mark", 0)
+            conn.rate, conn._rate_mark = conn.rx_lines - mark, conn.rx_lines
+            if conn.reader.isRunning():
+                conn.session_sec += 1
+        self._refresh_live_stats()
 
     # ═════════════════════════════════════════════════════════════════════════
     # Utilities
@@ -1521,8 +1810,14 @@ class MainWindow(QMainWindow):
     # ═════════════════════════════════════════════════════════════════════════
 
     def closeEvent(self, event):
-        if self._reader.isRunning():
-            self._reader.disconnect_port()
+        # Stop *every* connection's readers and loggers — with several devices
+        # open, leaving a background reader running aborts the process on exit
+        # ("QThread: Destroyed while thread is still running").
         self._settings.save()
-        self._logger.shutdown()
+        for conn in self._connections:
+            for r in conn.readers.values():
+                if r.isRunning():
+                    r.disconnect_port()
+                    r.wait(2000)
+            conn.logger.shutdown()
         event.accept()

@@ -29,6 +29,86 @@ from datetime import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
+class LineSplitter:
+    """Turns a byte stream into lines: one split per chunk, partial-line flush
+    after silence, and a hard cap on line length (shared by every reader).
+
+    Lines are returned *with* their ``\n`` terminator, so every received byte
+    is accounted for (the HEX view shows the stream exactly)."""
+
+    def __init__(self, max_line: int):
+        self.buf = bytearray()
+        self.buf_ts = 0.0          # monotonic time the last byte was appended
+        self.max_line = max_line
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        out: list[bytes] = []
+        if not chunk:
+            return out
+        self.buf.extend(chunk)
+        self.buf_ts = time.monotonic()
+        if b"\n" in chunk:
+            *out, rest = self.buf.split(b"\n")
+            out = [line + b"\n" for line in out]
+            self.buf = bytearray(rest)
+        # Binary / flash dumps can run megabytes without a newline: emit an
+        # over-long run in pieces instead of growing one giant "line".
+        while len(self.buf) >= self.max_line:
+            out.append(bytes(self.buf[:self.max_line]))
+            del self.buf[:self.max_line]
+        return out
+
+    def flush_if_idle(self, timeout: float) -> list[bytes]:
+        """Return a trailing partial line once no byte arrived for *timeout*
+        (crash/reset output often lacks a final newline)."""
+        if self.buf and self.buf_ts > 0 and time.monotonic() - self.buf_ts >= timeout:
+            raw, self.buf, self.buf_ts = bytes(self.buf), bytearray(), 0.0
+            return [raw]
+        return []
+
+
+#: C0 control characters (except TAB) and DEL → "·". Binary / flash dumps are
+#: full of them: NUL made the CSV log unreadable ("line contains NUL"), and the
+#: invisible glyphs roughly doubled the terminal's text-layout cost.
+_CONTROL_TO_DOT = {i: "·" for i in (*range(0, 9), *range(11, 32), 0x7F)}
+
+
+def deliver(reader, raw_lines: list[bytes]) -> None:
+    """Decode + timestamp *raw_lines* and hand them to the GUI as one batch of
+    ``(text, timestamp, arrival, raw_bytes)``.
+
+    One cross-thread signal per read instead of per line: at ~2k lines/s per
+    port the per-line queued signal was itself a large part of the GUI cost.
+    ``line_received`` (per line) is still emitted for anything connected to it.
+
+    Lines with no text (blank / bare CR-LF) are not passed on as lines, but
+    their bytes are carried into the next line's ``raw_bytes`` so the HEX view
+    never loses a byte.
+    """
+    if not raw_lines:
+        return
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    mono = time.monotonic()   # arrival time — lets the GUI measure its lag
+    carry = getattr(reader, "_raw_carry", b"")
+    batch = []
+    for raw in raw_lines:
+        text = raw.replace(b"\r", b"").rstrip(b"\n").decode("utf-8", errors="replace")
+        if not text:
+            carry += raw
+            continue
+        if not text.isprintable():
+            text = text.translate(_CONTROL_TO_DOT)
+        batch.append((text, ts, mono, carry + raw if carry else raw))
+        carry = b""
+    reader._raw_carry = carry
+    if not batch:
+        return
+    reader.lines_received.emit(batch)
+    if reader.receivers(reader.line_received) > 0:
+        for text, t, *_ in batch:
+            reader.line_received.emit(text, t)
+
+
 class StreamReader(QThread):
     """Base reader thread for serial-like byte streams. Not used directly —
     see :class:`~core.serial_reader.SerialReader` and
@@ -36,6 +116,7 @@ class StreamReader(QThread):
 
     # Signals emitted to the GUI thread
     line_received  = pyqtSignal(str, str)   # (line, timestamp)
+    lines_received = pyqtSignal(object)     # [(line, ts, arrival, raw bytes), …] per read
     error_occurred = pyqtSignal(str)
     connected      = pyqtSignal(str, int)   # (label, baud) — baud 0 for network
     disconnected   = pyqtSignal()
@@ -43,6 +124,10 @@ class StreamReader(QThread):
     # How long (seconds) a partial line with no new data waits before being
     # flushed as its own line. Catches crash/reset lines that lack a trailing \n.
     PARTIAL_FLUSH_TIMEOUT = 0.25
+    #: A "line" longer than this is emitted in pieces. Binary / flash dumps can
+    #: stream megabytes with no newline; unbounded, that one line grew without
+    #: limit and was pushed into the terminal in one go.
+    MAX_LINE_BYTES = 4096
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,8 +212,7 @@ class StreamReader(QThread):
         flushed after ``PARTIAL_FLUSH_TIMEOUT`` so crash/reset output is never
         merged with the next reboot line.
         """
-        buf = bytearray()
-        buf_ts: float = 0.0   # monotonic time when last byte was appended
+        lines = LineSplitter(self.MAX_LINE_BYTES)
 
         while self._running:
             try:
@@ -138,27 +222,8 @@ class StreamReader(QThread):
                 self.error_occurred.emit(str(e))
                 break
 
-            if chunk:
-                buf.extend(chunk)
-                buf_ts = time.monotonic()
-
-            # Emit all complete lines
-            while b"\n" in buf:
-                idx = buf.index(b"\n")
-                raw = buf[:idx].replace(b"\r", b"").decode("utf-8", errors="replace")
-                buf = buf[idx + 1:]
-                if raw:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    self.line_received.emit(raw, ts)
-
-            # Flush partial line after silence (handles crash/brownout output)
-            if buf and buf_ts > 0 and (time.monotonic() - buf_ts) >= self.PARTIAL_FLUSH_TIMEOUT:
-                raw = buf.replace(b"\r", b"").decode("utf-8", errors="replace").strip()
-                buf = bytearray()
-                buf_ts = 0.0
-                if raw:
-                    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    self.line_received.emit(raw, ts)
+            deliver(self, lines.feed(chunk))
+            deliver(self, lines.flush_if_idle(self.PARTIAL_FLUSH_TIMEOUT))
 
         # ── Abnormal exit (I/O exception or remote close) ─────────────────────
         # Emit disconnected so the GUI resets, unless disconnect_port() already

@@ -9,7 +9,7 @@ from collections import deque
 
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 CHART_COLORS = [
@@ -18,6 +18,9 @@ CHART_COLORS = [
 ]
 WINDOW_SEC = 60
 MAX_POINTS = 20_000
+#: Curves are redrawn at most this often; samples are buffered in between.
+#: Redrawing per sample capped the whole app at a few hundred lines/s.
+REDRAW_MS = 33
 
 
 class ChartPanel(QWidget):
@@ -26,7 +29,10 @@ class ChartPanel(QWidget):
         self._channels: dict[str, dict] = {}
         self._color_idx = 0
         self._t0 = time.monotonic()
+        self._dirty = False
         self._build()
+        self._redraw_timer = QTimer(self, interval=REDRAW_MS, timeout=self._redraw)
+        self._redraw_timer.start()
 
     def _build(self):
         lay = QVBoxLayout(self)
@@ -96,6 +102,10 @@ class ChartPanel(QWidget):
             self._color_idx += 1
         pen = pg.mkPen(color=color, width=1.5)
         curve = self._plot.plot([], [], pen=pen)
+        # Draw only what is on screen, peak-decimated to the pixel width — keeps
+        # a full 20k-point buffer cheap to repaint.
+        curve.setClipToView(True)
+        curve.setDownsampling(auto=True, method="peak")
         self._channels[name] = {
             "color": color,
             "buf_t": deque(maxlen=MAX_POINTS),
@@ -135,8 +145,25 @@ class ChartPanel(QWidget):
             if name in data:
                 ch["buf_t"].append(t)
                 ch["buf_v"].append(data[name])
+                ch["dirty"] = True
+                self._dirty = True
+
+    def _redraw(self) -> None:
+        """Push buffered samples to the curves (timer-driven). Skipped while
+        the chart is hidden — a background connection or closed dock costs
+        nothing; it catches up the next time it is shown."""
+        if not self._dirty or not self.isVisible():
+            return
+        self._dirty = False
+        for ch in self._channels.values():
+            if ch.pop("dirty", False):
                 ch["curve"].setData(list(ch["buf_t"]), list(ch["buf_v"]))
+        t = time.monotonic() - self._t0
         self._plot.setXRange(max(0.0, t - WINDOW_SEC), t + 0.5, padding=0)
+
+    def showEvent(self, event):              # noqa: N802  (Qt naming)
+        super().showEvent(event)
+        self._redraw()
 
     def clear(self) -> None:
         self._t0 = time.monotonic()

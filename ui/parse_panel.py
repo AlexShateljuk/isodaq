@@ -31,9 +31,10 @@ class _ChRow(QWidget):
         self._en.setChecked(self.ch.enabled)
         self._en.toggled.connect(lambda v: setattr(self.ch, "enabled", v))
         lay.addWidget(self._en)
+        lay.addSpacing(4)   # keep the name clear of the checkbox swatch
 
         self._name_lbl = QLabel(self.ch.name)
-        self._name_lbl.setStyleSheet("color:#dde1ec;font-size:10px;")
+        self._name_lbl.setStyleSheet("font-size:10px;")   # inherit theme fg
         self._name_lbl.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._refresh_tooltip()
@@ -110,10 +111,12 @@ class _ChRow(QWidget):
 
     def update_value(self, value: float) -> None:
         self._val_lbl.setText(f"{value:.5g}")
-        self._val_lbl.setStyleSheet(
-            "font-family:'JetBrains Mono';font-size:10px;"
-            "color:#3ecf8e;min-width:58px;"
-        )
+        if not getattr(self, "_live", False):   # restyle once, not per sample
+            self._live = True
+            self._val_lbl.setStyleSheet(
+                "font-family:'JetBrains Mono';font-size:10px;"
+                "color:#3ecf8e;min-width:58px;"
+            )
 
 
 class ParsePanel(QWidget):

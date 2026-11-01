@@ -184,6 +184,7 @@ def test_multi_connection_isolation(qapp, tmp_path, monkeypatch):
         w._on_conn_line(a, "DATA: t=1.0", "00:00:00.000")
         w._on_conn_line(b, "DATA: t=2.0", "00:00:01.000")
         assert a.last_parsed["t"] == 1.0 and b.last_parsed["t"] == 2.0
+        w._flush_terminals()   # terminal writes are batched (~30 fps)
         assert "t=1.0" in w._terminals[a.id].toPlainText()
         assert "t=1.0" not in w._terminals[b.id].toPlainText()
 
@@ -220,5 +221,28 @@ def test_ssh_legacy_single_session_migrates(qapp, tmp_path, monkeypatch):
         assert len(w._ssh_sessions) == 1
         assert w._ssh_sessions[0]["host"] == "old.host"
         assert w._ssh_sessions[0]["name"] == "me@old.host"
+    finally:
+        w.close()
+
+
+def test_hex_view_renders_received_bytes(qapp, tmp_path, monkeypatch):
+    from ui.controllers.update_manager import UpdateManager
+    from ui.main_window import MainWindow
+
+    monkeypatch.setattr(MainWindow, "_CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(UpdateManager, "start", lambda self: None)
+    w = MainWindow()
+    try:
+        conn = w._active_conn
+        w._chk_hex.setChecked(True)
+        raw = bytes(range(0x41, 0x41 + 20)) + b"\r\n"     # 22 bytes → 2 rows
+        w._on_conn_line(conn, "ABCDEFGHIJKLMNOPQRST", "00:00:00.000", raw)
+        w._on_conn_line(conn, "next", "00:00:00.001", b"next\n")
+        w._flush_terminals()
+        text = w._terminal.toPlainText()
+        assert "00000000  41 42 43 44 45 46 47 48  49 4A 4B 4C 4D 4E 4F 50" in text
+        assert "|ABCDEFGHIJKLMNOP|" in text
+        assert "00000010  51 52 53 54 0D 0A" in text and "|QRST..|" in text
+        assert "00000016  6E 65 78 74 0A" in text        # offsets run on
     finally:
         w.close()

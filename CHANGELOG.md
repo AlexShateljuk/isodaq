@@ -48,6 +48,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     details persist across restarts (**the SSH password is never saved**). New
     tests in `tests/test_net_reader.py`.
 
+- **IDE-style layout** — IntelliJ-like tool windows: Devices / Parsing / Macros /
+  Custom command on the left, Graphs / Indicators on the right, Events /
+  Analytics / Triggers / Data Logger at the bottom. Every dock collapses to its
+  edge stripe so the terminal can own the window; one window-wide connection
+  toolbar.
+- **HEX view** — a one-click `HEX` toggle next to the command line shows received
+  data as a classic hex dump (`offset · 16 bytes · |ascii|`) with a running
+  per-connection byte offset. Every received byte is shown, including CR/LF.
+  Parsing, triggers and logging are unaffected.
+- **Command palette** — `Ctrl/Cmd+K` or `Ctrl/Cmd+Shift+P` (View → Command
+  Palette…): fuzzy-search and run any action — connect, switch connection, open
+  a tool window, toggle HEX/timestamps/autoscroll, change theme, every menu item.
+
+### Changed
+- **Much faster at high data rates** — the app previously handled ≈250 lines/s in
+  total; one port at 921600 baud lagged over a minute and froze the window.
+  It now sustains several ports at 921600 baud and flash-dump bursts with no
+  lost lines in the CSV/SQLite logs: readers deliver lines in batches, the
+  terminal paints in batches (~30 fps), charts/analytics redraw on timers only
+  while visible, and received lines are processed on a time budget so the
+  window stays responsive. If the display falls more than 1 s behind, the
+  excess is still logged and trigger-checked but not drawn (the terminal says
+  so when it catches up).
+- The connection toolbar, status bar (rate, errors, session time) and the
+  Events badge now follow the active connection tab. Failed or lost
+  connections are marked with a red ✕ in the Devices list and tab.
+- Connection tabs show short names (`127.0.0.1:5000`, `tty.usbmodem1101`) with
+  the full name in a tooltip, and scroll instead of truncating.
+
+### Fixed
+- **Crash/hang when reading a flash or binary dump** — data without line breaks
+  grew into one unbounded "line"; lines are now capped at 4 KB.
+- **CSV logs unreadable after binary data** — NUL and other control characters
+  are now shown as `·`.
+- The terminal rendered in a proportional font when JetBrains Mono isn't
+  installed; it now falls back to SF Mono / Menlo / Consolas.
+- The HEX option did nothing.
+- The status bar's Rate and Errors were never updated.
+- Quitting with several live connections aborted with "QThread: Destroyed while
+  thread is still running".
+- The Devices list was empty until the first connection change.
+- Parsing channel names were invisible in the light theme.
+
 ## [0.3.0] — 2026-07-25
 
 ### Added

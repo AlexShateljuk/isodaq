@@ -119,6 +119,7 @@ class SearchController(QObject):
     def _update(self) -> None:
         """Recompute matches over the terminal text and highlight them."""
         needle = self._edit.text()
+        self._mw._flush_terminals()
         text   = self._mw._terminal.toPlainText()
         self._matches = []
         if needle:
@@ -180,6 +181,7 @@ class SearchController(QObject):
         if line_id is None or line_id < 0:
             mw._log("SYS", "No log location recorded for this event.", _win.C_DIM)
             return
+        mw._flush_terminals()   # the target line may still be queued
         doc = mw._terminal.document()
         block = doc.firstBlock()
         while block.isValid():
