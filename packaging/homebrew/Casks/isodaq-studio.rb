@@ -1,6 +1,6 @@
 cask "isodaq-studio" do
-  version "0.3.0"
-  sha256 "af3d3abaa97958a03f2770099eb124a0e993089ceb3c7cbb8aca9138da9b0b0e"
+  version "0.4.0"
+  sha256 "f09fc84d60e81931585863b74dd1138252fb7e8b87b98fefeb8eb74fb36a367b"
 
   url "https://github.com/AlexShateljuk/isodaq/releases/download/v#{version}/IsoDAQ-Studio-macos-arm64.zip",
       verified: "github.com/AlexShateljuk/isodaq/"
