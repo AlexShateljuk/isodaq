@@ -25,7 +25,9 @@ jobs:
           # release, so we don't ship a native Intel build — Intel Mac users run
           # from source (it's a pure-Python app; see the README). PyInstaller
           # builds the runner's native arch (spec target_arch=None).
-          - os: macos-14
+          # macos-15: the macos-14 image is retired on 2026-11-02 (brownouts
+          # before that cancel the job and block the release).
+          - os: macos-15
             artifact: IsoDAQ-Studio-macos-arm64.zip
             dist_name: IsoDAQ Studio.app
 
