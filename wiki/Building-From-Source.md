@@ -9,7 +9,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Requires **Python 3.10+**. For development extras (tests, linter), also install
+Requires **Python 3.9+**. For development extras (tests, linter), also install
 `requirements-dev.txt`.
 
 ## Build a standalone binary
@@ -61,7 +61,8 @@ The images under `docs/images/` (used by the README and this wiki) are generated
 not hand-captured:
 
 ```bash
-python tools/gen_screenshots.py
+python tools/gen_screenshots.py   # docs/images/*.png
+python tools/gen_demo_gif.py      # docs/images/demo.gif
 ```
 
 It builds the real `MainWindow`, feeds it synthetic serial data, and saves

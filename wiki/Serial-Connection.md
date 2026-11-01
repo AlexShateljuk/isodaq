@@ -1,67 +1,112 @@
 # Serial Connection
 
-The **port bar** at the top of the terminal side controls the connection.
+The **connection toolbar** across the top of the window controls the active
+connection (the selected [connection tab](Multiple-Connections)).
 
 ## Controls
 
 | Control | Options | Notes |
 |---------|---------|-------|
-| **PORT** | auto-detected serial ports | press **⟳** to rescan after plugging in |
-| **BAUD** | 9600 · 19200 · 38400 · 57600 · 115200 · 230400 · 460800 · 921600 | must match your firmware |
-| **Data** | 8N1 · 8E1 · 8O1 · 7N1 | data bits / parity / stop bits |
-| **Flow** | None · RTS/CTS · XON/XOFF | hardware / software flow control |
+| **Transport** | Serial · Network · SSH | what kind of source this connection reads |
+| **Port / target** | serial ports · a URL · a saved SSH session | see the transports below |
+| **↻** | — | rescan serial ports (in SSH mode it becomes **✎** to edit the session) |
+| **Baud** | 9600 · 19200 · 38400 · 57600 · 115200 · 230400 · 460800 · 921600 | must match your firmware |
 | **Connect** | — | toggles to **Disconnect** once open |
+| **`⋯`** | Data (8N1 · 8E1 · 8O1 · 7N1), Flow (None · RTS/CTS · XON/XOFF), Timestamp / HEX / Autoscroll / Echo, font size, Clear | set-once options |
 
-Row three of the port bar carries the terminal toggles (Timestamp, HEX,
-Autoscroll, Echo), the font-size stepper and **Clear** — see [Terminal](Terminal).
+The toolbar always shows the **active tab's** transport, target and baud;
+switching tabs switches what it shows.
+
+## Transports
+
+### Serial
+
+A local COM / tty port. Pick it from the list (press **↻** after plugging a
+device in). On macOS prefer the `/dev/cu.*` entry.
+
+### Network
+
+Type a URL into the target field:
+
+| URL | Use for |
+|-----|---------|
+| `socket://192.168.1.50:23` | raw TCP — telnet-style log streams, `ser2net` / `socat` bridges |
+| `rfc2217://host:4001` | network serial servers (Moxa NPort, Digi, Lantronix, ser2net in RFC 2217 mode) — baud/framing are applied remotely |
+| `loop://` | in-memory loopback, handy for testing |
+
+The connection opens on the reader thread, so an unreachable host never freezes
+the window.
+
+### SSH
+
+Streams the output of a command on a remote machine — e.g. `cat /dev/ttyUSB0` on
+a Raspberry Pi wired to your board, or `tail -f /var/log/app.log`. The command
+line sends to the remote command's stdin.
+
+- **Saved sessions** — the target list shows your saved SSH profiles
+  (name, host, port, user, key, command) plus **＋ Add SSH session…**. **✎** edits
+  the selected one; right-click a session for **Edit… / Delete**.
+- **Passwords are never written to disk** — you're asked once per run (leave it
+  blank to use a key or ssh-agent).
+- Needs `paramiko` (bundled in the release binaries; `pip install paramiko` when
+  running from source).
 
 ## Connecting
 
-1. Select **PORT** and **BAUD** (set framing/flow if your device needs it).
+1. Choose the transport and target, and the **Baud** (set framing/flow under `⋯`
+   if your device needs it).
 2. Click **Connect**.
 3. The status bar turns green and reads `● PORT · BAUD`, the session timer starts,
-   and a `Connected: PORT @ BAUD` line is written to the terminal.
+   and a `Connected: …` line is written to the terminal.
 
-Click **Disconnect** (same button) to close the port. If the device disappears
-(cable pulled, board reset), IsoDAQ Studio **auto-detects the disconnect** and
-resets the UI to the disconnected state.
+Click **Disconnect** (same button) to close it. If the device disappears (cable
+pulled, board reset, host unreachable), IsoDAQ Studio detects it, shows
+`● Connection failed` in red, marks the connection with a red **✕** in the
+[Devices](Multiple-Connections) list and counts it under **Errors**. The mark
+clears on the next successful connect.
+
+Need more than one device? Click **`+`** next to the tabs — see
+[Multiple Connections](Multiple-Connections).
 
 ## Under the hood — the high-throughput reader
 
-The serial reader runs on its own `QThread` and is tuned for sustained high baud
-rates:
+Each connection's reader runs on its own thread and is tuned for sustained high
+data rates:
 
-- **Chunked reads** — it reads whatever is in the OS buffer (`in_waiting`) in one
-  go rather than byte-by-byte, so there's no per-line latency even at 921 600 baud
-  (~90 KB/s). Each read iteration is on the order of ~100 µs.
-- **Line assembly** — bytes are buffered and split on the newline; complete lines
-  are delivered to the GUI via a **queued Qt signal** (`line_received`), keeping
-  the serial thread off the GUI thread.
-- **Partial-line flush** — a line that arrives without a trailing `\n` is held
-  briefly and then flushed after **250 ms of silence**, so a device that prints a
-  prompt without a newline (e.g. `> `) still shows up promptly.
+- **Chunked reads** — whatever is in the OS buffer (`in_waiting`) is read in one
+  go, not byte by byte.
+- **Line assembly** — one split per read; lines are handed to the window **in
+  batches** (one signal per read), not one by one.
+- **Partial-line flush** — a line without a trailing `\n` is flushed after
+  **250 ms of silence**, so a prompt like `> ` still shows up promptly.
+- **Line-length cap** — a run of more than 4 KB without a newline (binary data,
+  flash dumps) is emitted in 4 KB pieces instead of growing without limit.
+- **Control characters** (NUL, BEL, …) are shown as `·` so they can't break the
+  CSV log; use the [HEX view](Terminal#hex-view) to see the exact bytes.
 
-See [Architecture](https://github.com/AlexShateljuk/isodaq/blob/master/docs/ARCHITECTURE.md)
-for the full threading model.
+→ [Performance & High Data Rates](Performance-and-High-Data-Rates) ·
+[Architecture](https://github.com/AlexShateljuk/isodaq/blob/master/docs/ARCHITECTURE.md)
 
 ## Sending commands
 
-The command box at the bottom sends a line over the port. Pick the **EOL**
-terminator (`\r\n`, `\n`, `\r`, or None) next to the Send button; use **↑ / ↓**
-for command history. With **Echo** enabled, what you send is mirrored back into
-the terminal (TX colour). Details in [Terminal](Terminal#sending-commands).
+The command box at the bottom sends a line over the active connection. Pick the
+**EOL** terminator (`\r\n`, `\n`, `\r`, or None) next to the Send button; use
+**↑ / ↓** for command history. With **Echo** enabled, what you send is mirrored
+into the terminal (TX colour). Details in [Terminal](Terminal#sending-commands).
 
 ## Counters
 
-The status bar tracks **RX** and **TX** byte totals and the **Session** time for
-the current connection. These reset when you start a new session.
+The status bar shows, for the active connection: **RX** and **TX** bytes,
+**Rate** (lines per second), **Errors**, and **Session** (time connected).
 
 ## Troubleshooting
 
-- **Port not listed** — press **⟳**; on Linux make sure your user is in the
+- **Port not listed** — press **↻**; on Linux make sure your user is in the
   `dialout` group; on macOS use the `/dev/cu.*` entry (not `/dev/tty.*`).
 - **Garbage characters** — the baud rate or framing doesn't match the device.
-- **Nothing received but device is printing** — check the newline convention and
-  the **HEX** toggle; some devices emit `\r` only.
+- **Nothing received but the device is printing** — check the newline convention
+  (some devices emit `\r` only) and try the **HEX** view to see what arrives.
+- **Network: connection refused** — check host/port and that the bridge
+  (`ser2net`, NPort…) is listening; the status bar shows `Connection failed`.
 
 See also [FAQ & Troubleshooting](FAQ-and-Troubleshooting).

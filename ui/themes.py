@@ -115,6 +115,39 @@ def install_font_fallbacks() -> None:
         "Helvetica Neue", "Noto Sans", "DejaVu Sans"])
 
 
+class _LayoutRectFix:
+    """App-wide event filter: lay check boxes / radio buttons out by their real
+    widget rect. The macOS style shrinks their *layout* rect to make room for
+    the native focus ring; with our stylesheet-drawn indicators that made
+    neighbours overlap by ~5 px ("Flash" / "Log" / "Sound" in the trigger
+    editor). Qt's documented fix is WA_LayoutUsesWidgetRect."""
+
+    _filter = None
+
+    @classmethod
+    def install(cls) -> None:
+        from PyQt6.QtCore import QEvent, QObject, Qt
+        from PyQt6.QtWidgets import QApplication, QCheckBox, QRadioButton
+
+        if cls._filter is not None:
+            return
+
+        class _Filter(QObject):
+            def eventFilter(self, obj, event):        # noqa: N802  (Qt naming)
+                if (event.type() == QEvent.Type.Polish
+                        and isinstance(obj, (QCheckBox, QRadioButton))):
+                    obj.setAttribute(Qt.WidgetAttribute.WA_LayoutUsesWidgetRect, True)
+                return False
+
+        cls._filter = _Filter(QApplication.instance())
+        QApplication.instance().installEventFilter(cls._filter)
+
+
+def install_layout_fixes() -> None:
+    """Install the app-wide layout fixes (see :class:`_LayoutRectFix`)."""
+    _LayoutRectFix.install()
+
+
 def build_stylesheet(theme: ThemeName = "vscode") -> str:
     c = _PALETTES.get(theme, _PALETTES["vscode"])
     url_dim, url_hover = _ensure_arrows(c)

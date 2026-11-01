@@ -75,14 +75,13 @@ def main() -> None:
     win = MainWindow()
     win.resize(1300, 800)
     win.show()
-    win._right_panel_visible = True
-    win._apply_right_panel()
     gs.pump(app, 400)
 
     gs.setup_channels(win)
     win._log_colorizer_enabled = {"ESP32 (ESP-IDF)"}
     gs.set_connected(win)
-    win._tabs.setCurrentWidget(win._chart_panel)
+    for key in ("graphs", "events"):      # live chart right, trigger events below
+        gs.show_tool(win, key, app)
 
     # A little boot context in the terminal before the stream starts.
     for line in ("I (0210) boot: IsoDAQ target online, fw 1.4.2",

@@ -65,7 +65,7 @@ from ui.chart_panel import ChartPanel
 from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
 from ui.tool_window import StripeBar, ToolDock
-from ui.themes import build_stylesheet, install_font_fallbacks, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
+from ui.themes import build_stylesheet, install_font_fallbacks, install_layout_fixes, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
 from ui.controllers.dev_tools import DevTools
@@ -345,6 +345,7 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         """Assembles the full window: stylesheet, menu, left/right splitter, statusbar."""
         install_font_fallbacks()   # before any widget resolves a font
+        install_layout_fixes()     # before any check box is laid out
         QApplication.instance().setStyleSheet(build_stylesheet(self._current_theme))
         self._build_menu()
 
@@ -437,6 +438,8 @@ class MainWindow(QMainWindow):
         view_m.addAction(QAction(tr("Right Panel"), self,
                                  triggered=self._toggle_right_panel,
                                  shortcut="Ctrl+Shift+R"))
+        view_m.addAction(QAction(tr("Detach Tool Window"), self,
+                                 triggered=self._float_current_tab, shortcut="F4"))
         view_m.addSeparator()
         theme_m = view_m.addMenu(tr("Theme"))
         for display_name in THEME_NAMES:
@@ -1274,7 +1277,6 @@ class MainWindow(QMainWindow):
                     self._chk_echo.toggle),
             Command(tr("Increase font size"), tr("Terminal"), lambda: self._change_font_size(+1)),
             Command(tr("Decrease font size"), tr("Terminal"), lambda: self._change_font_size(-1)),
-            Command(tr("Detach current tool window"), tr("View"), self._float_current_tab),
         ]
         if len(self._connections) > 1:
             cmds.append(Command(tr("Close this connection"), tr("Connection"),
@@ -1629,6 +1631,10 @@ class MainWindow(QMainWindow):
         if raw is not None:   # received bytes: remember their stream offset (HEX view)
             offset = conn.hex_offset
             conn.hex_offset += len(raw)
+            # Decide the view on arrival, not at paint time — toggling HEX must
+            # not re-format lines still waiting for the next batched paint.
+            if not self._chk_hex.isChecked():
+                raw = None
         conn.term_pending.append(
             ("line", conn.line_seq, ts if self._chk_ts.isChecked() else "",
              direction, text, color, text_color, raw, offset))
@@ -1687,7 +1693,6 @@ class MainWindow(QMainWindow):
                     f.setBackground(bg)
             return f
 
-        hex_mode = self._chk_hex.isChecked()
         cursor = QTextCursor(term.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.beginEditBlock()
@@ -1700,7 +1705,7 @@ class MainWindow(QMainWindow):
             if ts:
                 cursor.insertText(f"{ts}  ", dim_fmt)
             cursor.insertText(f"{direction:<3}  ", fmt(color, bold=True))
-            if hex_mode and raw:
+            if raw:   # received while the HEX view was on
                 self._insert_hex(cursor, raw, offset, " " * (len(ts) + 7 if ts else 5),
                                  dim_fmt, fg_fmt, fmt(color))
                 cursor.block().setUserState(seq)

@@ -31,7 +31,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Requires **Python 3.10+**. Dependencies: PyQt6, pyserial, pyqtgraph, numpy.
+Requires **Python 3.9+**. Dependencies: PyQt6, pyserial, pyqtgraph, numpy.
 
 ## Your first connection
 
@@ -58,10 +58,10 @@ Once you see data flowing:
 1. **Colour your logs** — `Settings → Log Colorizer…`, tick your platform
    (e.g. *ESP32 (ESP-IDF)*). INFO/WARN/ERROR lines are now green/amber/red.
    → [Log Colorizer](Log-Colorizer)
-2. **Pull out a number** — in the **Parsing** sidebar section click **+ Add**,
+2. **Pull out a number** — open the **Parsing** tool window (left edge) and click **+ Add**,
    set a **Key** (e.g. `temp`), tick **Add to Chart** and **Add to Indicators**,
    and **Save**. → [Data Parser](Data-Parser)
-3. **Watch it live** — switch to the **Graphs** and **Indicators** tabs.
+3. **Watch it live** — open the **Graphs** and **Indicators** tool windows (right edge).
    → [Live Views](Live-Views)
 4. **Alert on a line** — in **Triggers** click **+ Add**, type
    `Brownout Detector`, pick actions, **Save**. → [Triggers](Triggers)

@@ -1,8 +1,8 @@
 # Macros
 
 A macro is a saved **sequence of commands** sent over serial, with optional delays
-and response handshakes between steps. Manage them in the **Macros** sidebar
-section — each row has **Run (▶)**, **Edit (✏)** and **Delete (×)**.
+and response handshakes between steps. Manage them in the **Macros** tool
+window (left edge) — each row has **Run (▶)**, **Edit (✏)** and **Delete (×)**.
 
 ![Macro editor](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/dialog-macro-editor.png)
 

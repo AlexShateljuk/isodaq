@@ -92,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thread is still running".
 - The Devices list was empty until the first connection change.
 - Parsing channel names were invisible in the light theme.
+- Detaching a tool window had no shortcut after the layout redesign; it is back
+  as **View → Detach Tool Window** (`F4`).
+- macOS: check boxes overlapped their neighbours' labels (e.g. *Flash / Log /
+  Sound* in the trigger editor).
 
 ## [0.3.0] — 2026-07-25
 

@@ -16,11 +16,12 @@ Built with **Python 3 · PyQt6 · pyqtgraph** — runs on **Windows · Linux · 
 
 </div>
 
-> Connect to a serial device, watch the traffic scroll by with millisecond
-> timestamps and log-level colouring, pull named numeric channels out of the
-> stream, plot them live, fire alerts on the lines that matter, log everything to
+> Connect to one or **several devices at once** — over USB serial, TCP/RFC2217 or
+> SSH — watch the traffic scroll by with millisecond timestamps and log-level
+> colouring (or as a **hex dump**), pull named numeric channels out of the stream,
+> plot them live, fire alerts on the lines that matter, log everything to
 > CSV + SQLite, and share the whole session with a colleague anywhere in the
-> world — all from one window.
+> world — all from one IDE-style window.
 
 ---
 
@@ -34,6 +35,9 @@ log → share**.
 |---|:---:|:---:|:---:|:---:|:---:|
 | Cross-platform (Win / Linux / macOS) | ✅ | ✅ | ✅ | ✅ | VS Code |
 | Full serial terminal | ✅ | ✅ | basic | ➖ | ❌ |
+| **Several devices at once** (one tab each) | ✅ | separate windows | ❌ | ❌ | ❌ |
+| Network (TCP / RFC2217) & SSH sources | ✅ | ✅ | ❌ | ✅ | ➖ |
+| HEX view (offset · bytes · ASCII) | ✅ | ❌ | ❌ | ➖ | ❌ |
 | Live plots | ✅ | ❌ | basic | ✅ | ✅ |
 | Named-channel parsing (KEY=VALUE / JSON) | ✅ | ❌ | ❌ | ✅ | ✅ |
 | Value dashboards / indicators | ✅ | ❌ | ❌ | ✅ | ➖ |
@@ -45,9 +49,12 @@ log → share**.
 | **Remote session sharing** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Free & open source | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-What's genuinely different: **triggers + notifications** on the lines that matter,
-per-platform **log colouring**, command **macros**, and **remote session sharing** —
+What's genuinely different: **several devices side by side**, each with its own
+parser, charts and triggers; **triggers + notifications** on the lines that matter;
+per-platform **log colouring**; command **macros**; and **remote session sharing** —
 stream a board's live output to a colleague anywhere, no screen-share, no account.
+It is built for fast links too: several ports at **921 600 baud** and flash dumps
+are logged without losing a line (see [Performance](#performance)).
 
 ---
 
@@ -62,6 +69,7 @@ guide**, see the **[Wiki](https://github.com/AlexShateljuk/isodaq/wiki)**:
 | [Interface Overview](https://github.com/AlexShateljuk/isodaq/wiki/Interface-Overview) | [Live Views](https://github.com/AlexShateljuk/isodaq/wiki/Live-Views) | [Macros](https://github.com/AlexShateljuk/isodaq/wiki/Macros) |
 | [Serial Connection](https://github.com/AlexShateljuk/isodaq/wiki/Serial-Connection) | [Data Logger](https://github.com/AlexShateljuk/isodaq/wiki/Data-Logger) | [Session Sharing](https://github.com/AlexShateljuk/isodaq/wiki/Session-Sharing) |
 | [Terminal](https://github.com/AlexShateljuk/isodaq/wiki/Terminal) | [Log Colorizer](https://github.com/AlexShateljuk/isodaq/wiki/Log-Colorizer) | [Themes, Modes & Settings](https://github.com/AlexShateljuk/isodaq/wiki/Themes-Modes-and-Settings) |
+| [Multiple Connections](https://github.com/AlexShateljuk/isodaq/wiki/Multiple-Connections) | [Performance & High Data Rates](https://github.com/AlexShateljuk/isodaq/wiki/Performance-and-High-Data-Rates) | [FAQ & Troubleshooting](https://github.com/AlexShateljuk/isodaq/wiki/FAQ-and-Troubleshooting) |
 
 ---
 
@@ -89,7 +97,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Requirements: Python 3.10+, see `requirements.txt` for package versions.
+Requirements: Python 3.9+, see `requirements.txt` for package versions.
 
 ### Pre-built binaries
 
@@ -128,46 +136,57 @@ More detail: **[Getting Started](https://github.com/AlexShateljuk/isodaq/wiki/Ge
 
 ## The interface at a glance
 
-A single window, split into a **terminal side** (left) and a **data side** (right).
-The data side (tabs + sidebar) is **collapsed by default** — click **⊞** in the
-port bar, or press `Ctrl+Shift+R`, to reveal it.
+An IDE-style window (think IntelliJ / VS Code): the **terminal** is the editor in
+the middle, and every other feature is a **tool window** docked to the left,
+right or bottom edge. Click a name on an edge **stripe** to open it, click again to
+collapse it — so the terminal can take the whole window when you want it to.
 
 ![IsoDAQ Studio interface](docs/images/main-window-dark.png)
 
 | Region | What it does |
 |--------|--------------|
-| **Port bar** (top-left) | Port / baud / framing, Connect, Share & Join, right-panel toggle |
-| **Terminal** (left) | Timestamped, colour-coded RX/TX with optional log-level highlighting; `Ctrl+F` searches |
-| **Command input** (bottom-left) | Send line + EOL selector, `↑ ↓` command history |
-| **Tabs** (right) | Graphs · Indicators · Events · Analytics (each pops out with `⤢`) |
-| **Chart area** (right) | Live plots / value cards / event log for the active tab |
-| **Sidebar** (far right) | Macros · Parsing · Data Logger · Triggers · Custom command |
+| **Connection toolbar** (top) | Transport (Serial / Network / SSH), port or URL, baud, Connect, `⋯` options, Share & Join |
+| **Connection tabs** | One tab per device; `+` adds one. Everything below follows the active tab |
+| **Terminal** (centre) | Timestamped, colour-coded RX/TX, log-level highlighting, **HEX** view; `Ctrl+F` searches |
+| **Command input** | Send line + `HEX` toggle + EOL selector, `↑ ↓` command history |
+| **Left tool windows** | Devices · Parsing · Macros · Custom command |
+| **Right tool windows** | Graphs · Indicators |
+| **Bottom tool windows** | Events · Analytics · Triggers · Data Logger |
+| **Status bar** | Connection state, RX/TX bytes, live line rate, errors, session time |
 
-All parsing configuration lives in the **Parsing** sidebar section.
-Two layout modes (**Advanced** / **Simple**), two themes (**Dark** / **Light**),
-and the panel/mode state are persisted across sessions.
+Press **`Ctrl/Cmd+K`** for the **command palette** — fuzzy-search any action,
+tool window, device or setting. `F4` detaches the open tool window into its own
+window. Two layout modes (**Advanced** / **Simple**), two themes (**Dark** /
+**Light**) and the open tool windows are persisted across sessions.
 → **[Interface Overview](https://github.com/AlexShateljuk/isodaq/wiki/Interface-Overview)**
 
 ---
 
 ## Features
 
-### Serial connection
+### Connections — serial, network, SSH, several at once
 
-- Port, baud rate (9 600 – 921 600), data bits, parity, stop bits, flow control (None / RTS/CTS / XON/XOFF)
-- High-throughput reader: `in_waiting` chunk reads — no per-line latency at high baud rates
-- Partial-line flush: incomplete lines without a trailing `\n` are emitted after 250 ms of silence
-- Automatic disconnect detection with UI reset
-- RX / TX byte counters and session timer in the status bar
-- Configurable EOL terminator (`\r\n` / `\n` / `\r` / none)
-- Command history navigation (↑ ↓)
+![Three devices at once](docs/images/multi-connection.png)
 
-→ **[Serial Connection guide](https://github.com/AlexShateljuk/isodaq/wiki/Serial-Connection)**
+- **Serial** — port, baud rate (9 600 – 921 600), data bits, parity, stop bits, flow control (None / RTS/CTS / XON/XOFF)
+- **Network** — `socket://host:port` (raw TCP, ser2net/socat bridges) and `rfc2217://host:port` (Moxa, Digi, Lantronix…)
+- **SSH** — stream a remote command's output (e.g. `cat /dev/ttyUSB0` on a Raspberry Pi); saved sessions, password never stored
+- **Multiple connections** — one tab per device, each with its own terminal, parser, charts, indicators, triggers, events, analytics and logger. Triggers fire on every connection, even background tabs. The **Devices** tool window lists them all: ● connected · ○ idle · ✕ failed / link lost
+- Status bar per device: RX/TX bytes, live **line rate**, error count, session time
+- Partial-line flush: incomplete lines without a trailing `\n` are emitted after 250 ms of silence; over-long runs (binary / flash dumps) are split at 4 KB
+- Automatic disconnect detection; configurable EOL (`\r\n` / `\n` / `\r` / none); command history (↑ ↓)
+
+→ **[Serial Connection guide](https://github.com/AlexShateljuk/isodaq/wiki/Serial-Connection)** ·
+**[Multiple Connections](https://github.com/AlexShateljuk/isodaq/wiki/Multiple-Connections)**
 
 ### Terminal
 
 - Monospace output with millisecond timestamps
-- HEX display mode
+- **HEX view** — one click on `HEX` shows received data as a classic hex dump with
+  a running byte offset; every byte is shown, including CR/LF. Ideal for flash
+  dumps and binary protocols:
+
+  ![HEX view](docs/images/terminal-hex.png)
 - Autoscroll toggle with manual override
 - Echo TX back to terminal
 - Adjustable font size (8 – 24 pt), persisted across sessions
@@ -175,6 +194,15 @@ and the panel/mode state are persisted across sessions.
 - Colour-coded lines: RX · TX · SYS · ERR
 
 → **[Terminal guide](https://github.com/AlexShateljuk/isodaq/wiki/Terminal)**
+
+### Command palette
+
+<img src="docs/images/command-palette.png" alt="Command palette" width="560">
+
+`Ctrl/Cmd+K` (or `Ctrl/Cmd+Shift+P`) opens a fuzzy search over everything the app
+can do: connect / disconnect, switch device, open any tool window, toggle HEX,
+timestamps or autoscroll, change theme, and every menu item. `↑ ↓` to pick,
+`Enter` to run, `Esc` to close.
 
 ### Log Colorizer
 
@@ -214,6 +242,7 @@ verifies extraction against a sample line before you commit a channel, and
 **New-channel prefix** at the top of the section pre-fills the prefix for new channels.
 
 Parsed values feed the **Graphs**, **Indicators**, and **Trigger Events** views.
+Every connection has its own channels.
 
 → **[Data Parser guide](https://github.com/AlexShateljuk/isodaq/wiki/Data-Parser)**
 
@@ -221,7 +250,8 @@ Parsed values feed the **Graphs**, **Indicators**, and **Trigger Events** views.
 
 ### Live views
 
-Every tab pops out into its own resizable window with the `⤢` button.
+Each view is a tool window; press `F4` (View → Detach Tool Window) to pop the open
+one out into its own resizable window — it docks back when you close it.
 
 | Graphs | Indicators |
 |--------|------------|
@@ -352,6 +382,7 @@ You can also **[host your own relay](https://github.com/AlexShateljuk/isodaq/wik
 
 - **Themes** — Dark (`#1e1e1e` base, teal accents) and Light, switchable at runtime (`View → Theme`)
 - **UI modes** — Advanced (full layout) and Simple (terminal-only), toggle with `Ctrl+Shift+M`
+- **Command palette** (`Ctrl/Cmd+K`) and keyboard shortcuts: `Ctrl+F` find · `F4` detach tool window · `Ctrl+Shift+R` right panel
 - **Auto-update check** — silent GitHub-Releases check on startup; a dismissible banner + OS notification appear if a newer version is out (`Help → Check for Updates` for a manual check)
 - **Settings persistence** — all session state is saved on exit and restored next launch (`~/.isodaq_studio/config.json`)
 
@@ -362,22 +393,21 @@ You can also **[host your own relay](https://github.com/AlexShateljuk/isodaq/wik
 ## Architecture
 
 ```
-SerialReader (QThread)
-    │  line_received(line, ts)  ── Qt queued signal → GUI thread
-    │
-    ├──▶  TriggerEngine.check(line, ts)           thread-safe RLock
-    │         └──▶  callbacks → MainWindow._on_trigger_match_gui()
-    │
-    ├──▶  Logger.write_line(line, ts)             lock-free queue.Queue
-    │         └──▶  _LogWriter (daemon thread)
-    │                   ├── _FileWriter   → .csv / .json / .txt
-    │                   └── _SQLiteWriter → .db WAL
-    │
-    └──▶  MainWindow._on_line_received()          GUI thread
-              ├── DataParser.parse(line)
-              ├── ChartPanel / IndicatorPanel update
-              ├── SessionServer.feed_line()        → broadcast to viewers
-              └── terminal append + log colorizer
+Per connection (one per device tab):
+
+Serial / Network / SSH reader (QThread)
+    │  LineSplitter: one split per read, 4 KB line cap, control chars → "·"
+    │  lines_received([(line, ts, arrival, raw_bytes), …])   one queued signal per read
+    ▼
+MainWindow._on_conn_lines()  → connection.rx_backlog                GUI thread
+    ▼
+MainWindow._drain_rx()   every 15 ms, ≤ 12 ms of work, round-robin over connections
+    │   (lines > 1 s behind: logged + trigger-checked only, not drawn)
+    ├──▶  Logger.write_line()          queue → _LogWriter thread → .csv / .json / .txt + SQLite (WAL)
+    ├──▶  TriggerEngine.check()        → events table, analytics, flash, notifications
+    ├──▶  DataParser.parse()           → chart / indicator buffers (redrawn ≤ 30 fps, only when visible)
+    ├──▶  terminal queue               → batched paint ~30 fps (text or HEX dump)
+    └──▶  SessionServer.feed_line()    → broadcast to viewers (active connection)
 
 SessionClient (QThread)  ← viewer side
     └── line_received → MainWindow._on_remote_line()
@@ -402,7 +432,11 @@ isodaq/
 │   ├── requirements.txt              # empty — stdlib only
 │   └── README.md                     # Deploy instructions
 ├── core/
-│   ├── serial_reader.py              # QThread serial reader
+│   ├── connection.py                 # One device: transport + parser + triggers + logger + state
+│   ├── stream_reader.py              # Shared reader base: read loop, LineSplitter, batched delivery
+│   ├── serial_reader.py              # Local serial (COM / tty)
+│   ├── net_reader.py                 # socket:// and rfc2217:// transports
+│   ├── ssh_reader.py                 # SSH transport (paramiko)
 │   ├── logger.py                     # Async dual-sink logger
 │   ├── triggers.py                   # Trigger engine
 │   ├── macros.py                     # Macro runner
@@ -415,7 +449,9 @@ isodaq/
 │   ├── stun_helper.py                # STUN public IP discovery (stdlib only)
 │   └── notifier.py                   # Telegram / webhook trigger notifier
 ├── ui/
-│   ├── main_window.py                # Main window, layout, signal wiring
+│   ├── main_window.py                # Main window, layout, RX drain, terminal
+│   ├── tool_window.py                # IDE-style edge stripes + docks
+│   ├── command_palette.py            # Ctrl/Cmd+K command palette
 │   ├── controllers/                  # Extracted controllers (serial, session, triggers, …)
 │   ├── chart_panel.py                # pyqtgraph scrolling chart
 │   ├── indicator_panel.py            # Live value indicator grid
@@ -427,8 +463,10 @@ isodaq/
 │   ├── log_colorizer_dialog.py       # Log colorizer settings
 │   ├── analytics_panel.py            # Trigger hit analytics
 │   └── themes.py                     # Dark / Light stylesheets
+├── emulator/                         # Virtual serial port (loopback TCP) for testing
 ├── tools/
-│   └── gen_screenshots.py            # Regenerates the docs/ screenshots
+│   ├── gen_screenshots.py            # Regenerates the docs/ screenshots
+│   └── gen_demo_gif.py               # Regenerates docs/images/demo.gif
 ├── translations/                     # i18n catalogs (uk.json, …)
 └── docs/
     ├── ARCHITECTURE.md
@@ -439,27 +477,38 @@ isodaq/
 
 ## Performance
 
-At 921 600 baud continuous ASCII stream (~90 KB/s):
+Measured with sequence-numbered test streams on virtual serial ports (the app's
+real serial reader), logger and triggers on, on an Apple-Silicon Mac:
 
-| Component | Strategy | Result |
-|-----------|----------|--------|
-| Serial read | `in_waiting` chunk reads | ~100 µs / iteration |
-| Logger queue | Lock-free enqueue from serial thread | reader never waits for disk |
-| File sink | Batch 256 lines → `writelines()` + `flush()` | every 200 ms |
-| SQLite sink | `executemany`, WAL, `synchronous=NORMAL` | 512 rows / 500 ms |
-| GUI | Queued Qt signal, scrollback capped | 5 000 lines default |
+| Scenario | Result |
+|----------|--------|
+| 1 port @ 921 600 baud (~1 900 lines/s) | display delay ≈ 25 ms, no UI freeze, 0 lines lost |
+| 4 ports @ 921 600 baud (~7 000 lines/s) | 0 lines lost; UI stays responsive |
+| Flash dump: 1–8 KB packets back-to-back + 4 MB raw binary, logging to CSV + SQLite | 0 lines lost in either log, no crash |
+| Everything at once (≈12 Mbit/s over 4 ports, triggers, user actions mid-load) | 0 lines lost in the logs; screen kept within ~1 s of live |
+
+How:
+
+| Component | Strategy |
+|-----------|----------|
+| Readers | `in_waiting` chunk reads; one split per read; lines delivered to the GUI **in batches** (one signal per read) |
+| GUI | Received lines processed on a **time budget** (≤ 12 ms per 15 ms tick) so the window never freezes; if the display falls > 1 s behind, the excess is logged + trigger-checked but not drawn |
+| Terminal | Batched paints (~30 fps), scrollback capped (5 000 lines default) |
+| Charts / analytics | Redrawn on timers, only while visible; clip-to-view + peak downsampling |
+| Logger | Lock-free queue → writer thread; CSV batches every 200 ms; SQLite `executemany`, WAL, `synchronous=NORMAL` |
+
+→ **[Performance & High Data Rates](https://github.com/AlexShateljuk/isodaq/wiki/Performance-and-High-Data-Rates)**
 
 ---
 
 ## Requirements
 
 ```
-PyQt6 >= 6.6.0
-pyserial >= 3.5
-pyqtgraph >= 0.13
-numpy >= 1.26
-pyqt6-sip
+PyQt6 >= 6.6        pyserial >= 3.5     numpy >= 1.26
+PyQt6-sip >= 13.6   pyqtgraph >= 0.13   paramiko >= 3   (SSH transport)
 ```
+
+Python **3.9+** (CI tests 3.9, 3.11 and 3.12). Exact tested versions: `constraints.txt`.
 
 ---
 

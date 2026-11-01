@@ -1,7 +1,7 @@
 # Data Logger
 
 The logger records the session to disk **in parallel** with everything else, using
-two sinks at once. Controls live in the **Data Logger** sidebar section.
+two sinks at once. Controls live in the **Data Logger** tool window (bottom edge); each connection has its own logger.
 
 <img src="https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/panel-logger.png" alt="Data Logger panel" width="320" align="right">
 

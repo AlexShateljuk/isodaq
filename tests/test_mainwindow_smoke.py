@@ -244,5 +244,15 @@ def test_hex_view_renders_received_bytes(qapp, tmp_path, monkeypatch):
         assert "|ABCDEFGHIJKLMNOP|" in text
         assert "00000010  51 52 53 54 0D 0A" in text and "|QRST..|" in text
         assert "00000016  6E 65 78 74 0A" in text        # offsets run on
+
+        # The view is decided on arrival: turning HEX off before the next paint
+        # must not turn already-received hex lines into text (and vice versa).
+        w._on_conn_line(conn, "late", "00:00:00.002", b"late\n")
+        w._chk_hex.setChecked(False)
+        w._on_conn_line(conn, "plain", "00:00:00.003", b"plain\n")
+        w._flush_terminals()
+        text = w._terminal.toPlainText()
+        assert "0000001B  6C 61 74 65 0A" in text
+        assert "RX   plain" in text
     finally:
         w.close()

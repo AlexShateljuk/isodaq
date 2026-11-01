@@ -2,7 +2,7 @@
 
 A trigger is a rule tested against **every incoming RX line** in real time. When a
 line matches, the trigger fires its configured **actions**. Manage triggers in the
-**Triggers** sidebar section.
+**Triggers** tool window (bottom edge). Each connection has its own triggers, and they fire even when that connection's tab is in the background.
 
 <img src="https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/panel-triggers.png" alt="Trigger editor" width="340" align="right">
 

@@ -1,8 +1,10 @@
 # Terminal
 
-The terminal is the scrolling record of everything sent and received on the port.
+The terminal is the scrolling record of everything sent and received on the
+port. Each [connection](Multiple-Connections) has its own terminal; the one shown
+belongs to the active tab.
 
-![Main window — terminal on the left](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/main-window-dark.png)
+![Main window — terminal in the centre](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/main-window-dark.png)
 
 ## Line colours
 
@@ -19,18 +21,18 @@ When the [Log Colorizer](Log-Colorizer) is active, **RX** lines are additionally
 recoloured by log level (INFO green / WARN amber / ERROR red) based on your
 platform's log format.
 
-## Display toggles (port bar, row 3)
+## Display toggles (`⋯` in the toolbar, or the command palette)
 
 | Toggle | Effect |
 |--------|--------|
 | **Timestamp** | Prefix every line with `HH:MM:SS.mmm` (millisecond precision) |
-| **HEX** | Show incoming bytes as hexadecimal instead of text |
+| **HEX** | Show incoming data as a hex dump — also a one-click **`HEX`** button next to the command box; see [HEX view](#hex-view) |
 | **Autoscroll** | Keep the newest line in view; turns off automatically while you scroll up, and snaps back when re-enabled |
 | **Echo** | Mirror what you send (TX) back into the terminal |
 
 ## Font size & scrollback
 
-- **A − / +** steps the terminal font between **8 and 24 pt**; the size is
+- **Font − / +** (under `⋯`, or *Increase / Decrease font size* in the command palette) steps the terminal font between **8 and 24 pt**; the size is
   persisted across sessions and applies to existing text immediately.
 - The scrollback is capped (default **5 000 lines**) so long sessions don't grow
   memory without bound; the oldest lines are trimmed first. The limit is
@@ -44,8 +46,8 @@ The input row at the bottom sends a single line:
 - **EOL selector** — choose the terminator appended to what you send: `\r\n`,
   `\n`, `\r`, or **None**.
 - **History** — **↑ / ↓** cycle through previously sent commands.
-- **Custom command** — the sidebar's *Custom command* section holds a free-text
-  box for a longer or reused command, sent with its own button.
+- **Custom command** — the *Custom command* tool window (left edge) holds a
+  free-text box for a longer or reused command, sent with its own button.
 
 For scripted, multi-step command flows (with delays and wait-for-response),
 use [Macros](Macros).
@@ -63,11 +65,34 @@ The terminal also supports **jump-to-line** from the [Trigger Events](Live-Views
 table — double-clicking an event row scrolls the terminal to the exact line that
 fired the trigger.
 
-## HEX mode
+## HEX view
 
-Toggle **HEX** to display raw incoming bytes as hex — useful for binary protocols
-or when you suspect non-printable characters. Timestamps still apply; switch back
-to text at any time.
+Click **`HEX`** next to the command box (or toggle it from `⋯` / the command
+palette) to show received data as a classic hex dump — for flash dumps, binary
+protocols, or when you suspect non-printable characters:
+
+![HEX view](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/terminal-hex.png)
+
+- Each received chunk becomes rows of **offset · 16 bytes · |ASCII|**; non-printable
+  bytes show as `.` in the ASCII column.
+- The **offset** is the running byte count of this connection, so it matches the
+  position in the stream (and in a flash image you read out).
+- **Every byte is shown**, including the CR/LF line endings and empty lines.
+- The setting applies to data **as it arrives** — lines already on screen keep
+  their format when you switch.
+- It only changes the display: the [Data Parser](Data-Parser), [Triggers](Triggers)
+  and the [Data Logger](Data-Logger) keep working on the text.
+- Tip: close the side tool windows for a wide terminal so the 16-byte rows don't
+  wrap.
+
+In text mode, control characters (NUL, BEL, …) are shown as `·`.
+
+## Under heavy load
+
+At very high data rates the terminal paints in batches (~30 times a second). If
+the display falls more than a second behind, the oldest lines are still logged
+and checked by triggers but not drawn, and a `SYS` line tells you how many were
+skipped once the display catches up. → [Performance & High Data Rates](Performance-and-High-Data-Rates)
 
 ## What gets recorded
 

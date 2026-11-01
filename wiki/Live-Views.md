@@ -1,8 +1,9 @@
 # Live Views
 
-The data side has four tabs that visualise the parsed channels and trigger
-activity. Any tab can be **popped out** into its own resizable window with the
-**`⤢`** button in the tab-bar corner (close it to dock it back).
+Four tool windows visualise the parsed channels and trigger activity: **Graphs**
+and **Indicators** on the right edge, **Events** and **Analytics** at the bottom.
+Each connection has its own set; they follow the active tab. Any of them can be
+**popped out** into its own window with **`F4`** (close it to dock it back).
 
 Channels appear here once you tick **Add to Chart** / **Add to Indicators** in the
 [Data Parser](Data-Parser).
@@ -63,7 +64,14 @@ at a glance — a wall of steps means something is firing repeatedly.
 
 ## Pop-out
 
-Click **`⤢`** to detach the active tab into a standalone window — for example,
-put **Graphs** on a second monitor while you keep the terminal in focus. The
-window inherits the current theme; closing it returns the tab to its original
-slot.
+Press **`F4`** (View → Detach Tool Window) to detach the open tool window into a
+standalone window — for example, put **Graphs** on a second monitor while you
+keep the terminal in focus. The window inherits the current theme; closing it
+docks the tool window back.
+
+## Performance
+
+Charts and analytics are redrawn on a timer (at most ~30 times a second) and
+only while they are visible, so a hidden chart or a background connection costs
+almost nothing; it catches up when shown. The Events table keeps the newest
+5 000 rows (the counter keeps the total).

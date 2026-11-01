@@ -136,11 +136,11 @@
   "Echo sent commands": "Відлуння надісланих команд",
   "Increase font size": "Збільшити шрифт",
   "Decrease font size": "Зменшити шрифт",
-  "Detach current tool window": "Відкріпити поточне вікно інструментів",
   "Close this connection": "Закрити це з'єднання",
   "Switch to": "Перейти до",
   "Show tool window": "Показати вікно інструментів",
   "Show received data as a hex dump (offset · bytes · ASCII)": "Показувати отримані дані як hex-дамп (зсув · байти · ASCII)",
   "HEX view on — new data is shown as a hex dump.": "HEX-перегляд увімкнено — нові дані показуються як hex-дамп.",
-  "HEX view off.": "HEX-перегляд вимкнено."
+  "HEX view off.": "HEX-перегляд вимкнено.",
+  "Detach Tool Window": "Відкріпити вікно інструментів"
 }

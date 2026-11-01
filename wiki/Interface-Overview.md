@@ -1,20 +1,56 @@
 # Interface Overview
 
-IsoDAQ Studio is a single window split into a **terminal side** (left) and a
-**data side** (right), with a menu bar on top and a status bar at the bottom.
-The data side is **collapsed by default** — click **⊞** in the port bar (or press
-`Ctrl+Shift+R`) to reveal it; the choice is remembered next launch.
+IsoDAQ Studio uses an **IDE-style layout** (think IntelliJ / VS Code). The
+**terminal** is the "editor" in the middle; every other feature is a **tool
+window** docked to the left, right or bottom edge. A connection toolbar runs
+across the top and a status bar across the bottom.
 
 ![IsoDAQ Studio interface](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/main-window-dark.png)
 
 | Region | Purpose | More |
 |--------|---------|------|
-| **Port bar** (top-left) | Port / baud / framing, Connect, Share & Join, right-panel toggle | [Serial Connection](Serial-Connection) |
-| **Terminal** (left) | Timestamped, colour-coded RX/TX output; `Ctrl+F` searches | [Terminal](Terminal) |
-| **Command input** (bottom-left) | Send line + EOL selector, `↑ ↓` history | [Terminal](Terminal#sending-commands) |
-| **Tabs** (right) | Graphs · Indicators · Events · Analytics | [Live Views](Live-Views) |
-| **Chart area** (right) | Plots / value cards / event log for the active tab | [Live Views](Live-Views) |
-| **Sidebar** (far right) | Macros · Parsing · Data Logger · Triggers · Custom command | below |
+| **Connection toolbar** (top) | Transport (Serial / Network / SSH), port or URL, ↻ rescan, baud, Connect, `⋯` options, Share & Join | [Serial Connection](Serial-Connection) |
+| **Connection tabs** | One tab per device, `+` adds one; the toolbar, terminal and every tool window follow the active tab | [Multiple Connections](Multiple-Connections) |
+| **Terminal** (centre) | Timestamped, colour-coded RX/TX output, HEX view; `Ctrl+F` searches | [Terminal](Terminal) |
+| **Command input** | Send line, `HEX` toggle, EOL selector, `↑ ↓` history | [Terminal](Terminal#sending-commands) |
+| **Edge stripes** | The names of the tool windows on each edge — click to open / collapse | below |
+| **Status bar** | Connection state, RX/TX bytes, live line rate, errors, session time | below |
+
+## Tool windows
+
+| Edge | Tool windows |
+|------|--------------|
+| **Left** | **Devices** (all connections and their state) · **Parsing** · **Macros** · **Custom command** |
+| **Right** | **Graphs** · **Indicators** |
+| **Bottom** | **Events** · **Analytics** · **Triggers** · **Data Logger** |
+
+- Click a name on a stripe to open that tool window; click it again (or the `×`
+  in the tool window's header) to collapse it back to the stripe.
+- One tool window per edge is open at a time; the **Events** stripe shows the
+  event count (`Events · 12`).
+- Tool-window headers carry their actions — e.g. **+ Add** on Parsing,
+  Macros and Triggers, **Clear** on Events.
+- **`F4`** (View → Detach Tool Window) pops the open tool window out into its own
+  resizable window (handy on a second monitor); closing it docks it back.
+- Which tool windows are open is remembered next launch.
+
+→ [Data Parser](Data-Parser) · [Live Views](Live-Views) · [Triggers](Triggers) ·
+[Macros](Macros) · [Data Logger](Data-Logger)
+
+## Command palette
+
+**`Ctrl/Cmd+K`** (or `Ctrl/Cmd+Shift+P`, View → Command Palette…) opens a search
+box over everything the app can do:
+
+![Command palette](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/command-palette.png)
+
+- Connect / disconnect, new / close / switch connection, rescan ports
+- Open any tool window
+- Toggle HEX view, timestamps, autoscroll, echo (the entry shows the current state)
+- Font size, theme, and every menu item
+
+Type a few letters — matching is fuzzy, so `hx` finds *HEX view* and `gr` finds
+*Graphs*. `↑ ↓` select, `Enter` runs, `Esc` closes.
 
 ## The menu bar
 
@@ -22,33 +58,17 @@ The data side is **collapsed by default** — click **⊞** in the port bar (or 
 |------|----------|
 | **File** | Save / Load triggers, Exit |
 | **Device** | Refresh ports |
-| **View** | Find… (`Ctrl+F`), Simple Mode (`Ctrl+Shift+M`), Right Panel (`Ctrl+Shift+R`), Theme |
+| **View** | Command Palette… (`Ctrl+Shift+P`), Find… (`Ctrl+F`), Simple Mode (`Ctrl+Shift+M`), Right Panel (`Ctrl+Shift+R`), Detach Tool Window (`F4`), Theme |
 | **Settings** | Log Colorizer…, Preferences… |
 | **Help** | Check for Updates, About |
 
-## The sidebar (accordion sections)
-
-The right sidebar is a stack of collapsible sections — click a header to
-expand/collapse it:
-
-- **Macros** — command sequences with run/edit/delete and a "send file" button. → [Macros](Macros)
-- **Parsing** — channel list + editor + custom Python snippet. → [Data Parser](Data-Parser)
-- **Data Logger** — start/stop, format, sinks, live stats. → [Data Logger](Data-Logger)
-- **Triggers** — rule list + editor with actions and notifications. → [Triggers](Triggers)
-- **Custom command** — a free-text box for a multi-line/ad-hoc command.
-
-## Tabs & pop-out
-
-The data side has four tabs — **Graphs**, **Indicators**, **Events**,
-**Analytics**. The **`⤢`** button in the tab-bar corner detaches the current tab
-into its own resizable window (useful on a second monitor); closing that window
-docks it back. See [Live Views](Live-Views).
-
 ## The status bar
 
-Left to right: connection state (`● PORT · BAUD` when connected), **RX** bytes,
-**TX** bytes, **Rate**, **Errors**, an optional remote-session latency LED (only
-while joined to a shared session), and the **Session** timer.
+Left to right, for the **active connection**: state (`● PORT · BAUD` when
+connected, `● Connection failed` in red after an error), **RX** and **TX** bytes,
+**Rate** (lines per second), **Errors** (red when non-zero), an optional
+remote-session latency LED (only while joined to a shared session), and the
+**Session** timer (time connected).
 
 ## Layout modes
 
@@ -56,15 +76,14 @@ while joined to a shared session), and the **Session** timer.
 
 | Mode | What's visible |
 |------|----------------|
-| **Advanced** (default) | Full layout — port bar, terminal, right panel, sidebar |
-| **Simple** | Left panel only — port settings, terminal, command input |
+| **Advanced** (default) | Full layout — toolbar, terminal, edge stripes and tool windows |
+| **Simple** | Toolbar, terminal and command input only |
 
-You can also hide just the right panel with **`⊞`** / `Ctrl+Shift+R`.
 The mode is persisted across sessions. → [Themes, Modes & Settings](Themes-Modes-and-Settings)
 
 ## Themes
 
-Two themes, switchable at runtime via `View → Theme`:
+Two themes, switchable at runtime via `View → Theme` (or the command palette):
 
 | Dark (VS Code) | Light |
 |:---:|:---:|

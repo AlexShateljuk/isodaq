@@ -22,13 +22,24 @@ pop-out windows) and is remembered next launch.
 
 | Mode | What's visible |
 |------|----------------|
-| **Advanced** (default) | Port bar, terminal + the right panel (tabs + sidebar) |
-| **Simple** | Left panel only — port settings, terminal, command input |
+| **Advanced** (default) | Toolbar, terminal, edge stripes and tool windows |
+| **Simple** | Toolbar, terminal and command input only |
 
-Within Advanced mode you can show/hide just the right panel with the **`⊞`**
-button or **`Ctrl+Shift+R`**. The right panel is **collapsed by default** so a
-fresh window opens focused on the terminal; open it when you need charts, parsing
-or triggers. Both the mode and the panel state are persisted across sessions.
+In Advanced mode every tool window collapses to its edge stripe, so the terminal
+can take the whole window; **`⊞`** / **`Ctrl+Shift+R`** shows or hides the right
+edge (Graphs / Indicators). The mode and the open tool windows are persisted
+across sessions. → [Interface Overview](Interface-Overview)
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl/Cmd+K` · `Ctrl/Cmd+Shift+P` | [Command palette](Interface-Overview#command-palette) |
+| `Ctrl+F` | Find in terminal |
+| `F4` | Detach the open tool window |
+| `Ctrl+Shift+M` | Simple / Advanced mode |
+| `Ctrl+Shift+R` | Show / hide the right tool windows |
+| `↑ / ↓` (command box) | Command history |
 
 ## Preferences
 

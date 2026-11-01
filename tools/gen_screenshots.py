@@ -167,6 +167,9 @@ def fill_chart(win: MainWindow) -> None:
         ch["buf_t"].clear(); ch["buf_v"].clear()
         ch["buf_t"].extend(xs); ch["buf_v"].extend(ys)
         ch["curve"].setData(xs, ys)
+    cp._dirty = False          # don't let the live redraw timer replace the demo curves
+    for ch in cp._channels.values():
+        ch.pop("dirty", None)
     cp._plot.setXRange(0, 60, padding=0)
     cp._plot.enableAutoRange(axis="y")
 
@@ -181,6 +184,7 @@ def fill_analytics(win: MainWindow) -> None:
             continue
         s["hits_t"].clear(); s["hits_t"].extend(times); s["count"] = len(times)
         ap._redraw(name, s)
+    ap._dirty.clear()          # keep the synthetic staircase (no live redraw)
     ap._plot.setXRange(0, 60, padding=0)
     ap._plot.enableAutoRange(axis="y")
     # Make the sidebar hit counters agree with the analytics staircase.
@@ -190,6 +194,9 @@ def fill_analytics(win: MainWindow) -> None:
 
 
 def set_connected(win: MainWindow) -> None:
+    conn = win._active_conn
+    conn.name = "/dev/tty.usbmodem1101"
+    win._update_conn_tab(conn)
     win._port_combo.insertItem(0, "/dev/tty.usbmodem1101")
     win._port_combo.setCurrentIndex(0)
     win._conn_btn.setText("Disconnect")
@@ -202,23 +209,23 @@ def set_connected(win: MainWindow) -> None:
 
 # ── Close-up helpers ──────────────────────────────────────────────────────────
 
-def expand(win: MainWindow, key: str) -> None:
-    sec = win._sidebar_sections.get(key)
-    if sec is not None and sec.collapsed:
-        sec.toggle()
+def show_tool(win: MainWindow, key: str, app: QApplication) -> None:
+    """Open a tool window (IDE layout: left / right / bottom docks)."""
+    win._show_tool(key)
+    pump(app, 200)
+    win._flush_terminals()
 
 
 def shot_tabs(win: MainWindow, app: QApplication) -> None:
     # crop: "trim" = auto-trim empty bottom, int = keep top N logical px, None = full
     specs = [
-        (win._chart_panel, "tab-graphs.png", None),
-        (win._indicator_panel, "tab-indicators.png", "trim"),
-        (win._trigger_events_panel, "tab-events.png", 330),
-        (win._analytics_panel, "tab-analytics.png", None),
+        ("graphs", win._chart_panel, "tab-graphs.png", None),
+        ("indicators", win._indicator_panel, "tab-indicators.png", "trim"),
+        ("events", win._trigger_events_panel, "tab-events.png", 330),
+        ("analytics", win._analytics_panel, "tab-analytics.png", None),
     ]
-    for panel, fname, crop in specs:
-        win._tabs.setCurrentWidget(panel)
-        pump(app, 200)
+    for key, panel, fname, crop in specs:
+        show_tool(win, key, app)
         grab(panel, fname)
         if crop == "trim":
             trim_bottom(fname)
@@ -227,11 +234,14 @@ def shot_tabs(win: MainWindow, app: QApplication) -> None:
 
 
 def shot_sidebar(win: MainWindow, app: QApplication) -> None:
-    grab(win._sidebar_sections["macros"], "panel-macros.png")
-    grab(win._sidebar_sections["logger"], "panel-logger.png")
+    show_tool(win, "macros", app)
+    grab(win._dock_left, "panel-macros.png")
+    trim_bottom("panel-macros.png")
+    show_tool(win, "logger", app)
+    grab(win._dock_bottom, "panel-logger.png")
 
-    # Parsing — expand + open the channel editor with a worked example.
-    expand(win, "parsing")
+    # Parsing — open the channel editor with a worked example.
+    show_tool(win, "parsing", app)
     pp = win._parse_panel
     pp.open_editor(default_prefix="DATA:")
     pp._key_e.setText("temp"); pp._name_e.setText("temp")
@@ -240,9 +250,11 @@ def shot_sidebar(win: MainWindow, app: QApplication) -> None:
     pp._chk_chart.setChecked(True); pp._chk_indicator.setChecked(True)
     pp._run_test()
     pump(app, 150)
-    grab(win._sidebar_sections["parsing"], "panel-parsing.png")
+    grab(win._dock_left, "panel-parsing.png")
+    pp._close_editor()
 
     # Triggers — open the rule editor.
+    show_tool(win, "triggers", app)
     tp = win._trigger_panel
     tp._open_editor()
     tp._pat.setText("Brownout Detector")
@@ -250,7 +262,78 @@ def shot_sidebar(win: MainWindow, app: QApplication) -> None:
     tp._type_c.setCurrentText("contains")
     tp._on_type("contains")
     pump(app, 150)
-    grab(win._sidebar_sections["triggers"], "panel-triggers.png")
+    grab(win._dock_bottom, "panel-triggers.png")
+    tp._close_editor()
+
+
+def shot_hex_and_palette(win: MainWindow, app: QApplication) -> None:
+    """HEX view of a flash-image header + the command palette."""
+    from ui.command_palette import CommandPalette
+    from ui.themes import theme_colors
+
+    conn = win._active_conn
+    for edge in ("left", "right", "bottom"):   # full-width terminal: 16-byte rows fit
+        win._close_dock(edge)
+    win._terminal.clear()
+    win._chk_hex.setChecked(True)
+    image = (b"\xe9\x03\x02\x20\x5c\x4c\x08\x40\xee" + bytes(7)
+             + b"ESP-IDF v5.1\x00\x00\x00\n")
+    win._on_conn_line(conn, "flash", "14:31:02.118", image)
+    win._on_conn_line(conn, "table", "14:31:02.121", bytes(range(0x20, 0x60)) + b"\r\n")
+    win._on_conn_line(conn, "OK", "14:31:02.130", b"OK\r\n")
+    win._chk_hex.setChecked(False)
+    win._flush_terminals()
+    pump(app, 200)
+    term = win._terminal
+    term.verticalScrollBar().setValue(term.verticalScrollBar().maximum())
+    pump(app, 100)
+    grab(term, "terminal-hex.png")
+    trim_bottom("terminal-hex.png", margin=24)
+    img = QImage(str(OUT / "terminal-hex.png"))      # drop the empty right side
+    img.copy(0, 0, min(img.width(), int(1180 * term.devicePixelRatioF())),
+             img.height()).save(str(OUT / "terminal-hex.png"))
+
+    pal = CommandPalette(win, theme_colors(win._current_theme))
+    pal.open_with(win._palette_commands())
+    pal._edit.setText("gr")
+    pump(app, 250)
+    grab(pal, "command-palette.png")
+    pal.hide()
+
+
+def shot_multi(win: MainWindow, app: QApplication) -> None:
+    """Three devices side by side in the Devices tool window."""
+    from core.data_parser import ChannelConfig
+    first = win._active_conn
+    for name, line_fn in (
+        ("/dev/ttyUSB0", lambda i: f'{{"fix": 3, "sats": {7 + i % 4}, "alt": {212 + i * 0.3:.1f}, "speed": {12 + i % 5}.4}}'),
+        ("socket://10.0.0.21:4001", lambda i: f"rpm:{1500 + 37 * i} | cur:{2 + (i % 7) * 0.4:.2f}A | vbus:0x5B{i:02X}"),
+    ):
+        win._add_connection()
+        conn = win._active_conn
+        conn.name = name
+        conn.parser.add_channel(ChannelConfig(name="speed" if "USB" in name else "rpm",
+                                              key="speed" if "USB" in name else "rpm",
+                                              show_chart=True, show_indicator=True))
+        conn.parse._rebuild(); conn.parse.sync_display_panels()
+        for i in range(24):
+            win._on_conn_line(conn, line_fn(i), f"14:32:{10 + i // 10:02d}.{(i * 97) % 1000:03d}")
+    # Show every demo device as connected (no real ports here): patch the
+    # Python-side isRunning() for the grab, then restore it.
+    for conn in win._connections:
+        conn.reader.isRunning = lambda: True
+        win._update_conn_tab(conn)
+    gps = win._connections[win._connections.index(first) + 1]
+    win._conn_bar.setCurrentIndex(win._conn_tab_index(gps.id))
+    show_tool(win, "devices", app)
+    show_tool(win, "indicators", app)
+    win._refresh_conn_state()
+    win._flush_terminals()
+    pump(app, 300)
+    grab(win, "multi-connection.png")
+    for conn in win._connections:
+        del conn.reader.isRunning
+        win._update_conn_tab(conn)
 
 
 def shot_dialogs(win: MainWindow, app: QApplication) -> None:
@@ -294,9 +377,6 @@ def main() -> None:
     win = MainWindow()
     win.resize(1300, 800)
     win.show()
-    # The right panel is collapsed by default now — open it for the screenshots.
-    win._right_panel_visible = True
-    win._apply_right_panel()
     pump(app, 500)
 
     setup_channels(win)
@@ -305,7 +385,9 @@ def main() -> None:
     fill_analytics(win)
     set_connected(win)
 
-    win._tabs.setCurrentWidget(win._chart_panel)
+    # Hero layout: Parsing (left) · Graphs (right) · Events (bottom).
+    for key in ("parsing", "graphs", "events"):
+        show_tool(win, key, app)
     pump(app, 400)
     print("Dark theme:")
     grab(win, "main-window-dark.png")
@@ -313,14 +395,20 @@ def main() -> None:
     shot_tabs(win, app)
     shot_sidebar(win, app)
     shot_dialogs(win, app)
+    shot_hex_and_palette(win, app)
 
     # Light theme — re-grab the hero on the Graphs tab.
     print("Light theme:")
     win._apply_theme("light")
-    win._tabs.setCurrentWidget(win._chart_panel)
+    for key in ("parsing", "graphs", "events"):
+        show_tool(win, key, app)
     set_connected(win)
     pump(app, 400)
     grab(win, "main-window-light.png")
+
+    print("Multi-connection:")
+    win._apply_theme("vscode")
+    shot_multi(win, app)
 
     print(f"\nDone. {len(list(OUT.glob('*.png')))} PNGs in {OUT}")
     win.close()

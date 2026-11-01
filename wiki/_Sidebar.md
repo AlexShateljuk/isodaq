@@ -7,6 +7,7 @@
 
 **Connecting & terminal**
 - [Serial Connection](Serial-Connection)
+- [Multiple Connections](Multiple-Connections)
 - [Terminal](Terminal)
 - [Log Colorizer](Log-Colorizer)
 
@@ -22,6 +23,7 @@
 
 **Configuration**
 - [Themes, Modes & Settings](Themes-Modes-and-Settings)
+- [Performance & High Data Rates](Performance-and-High-Data-Rates)
 - [Building From Source](Building-From-Source)
 - [FAQ & Troubleshooting](FAQ-and-Troubleshooting)
 

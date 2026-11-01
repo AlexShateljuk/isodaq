@@ -12,14 +12,35 @@ The **baud** rate or **framing** doesn't match the device. Confirm the firmware'
 settings and try again (115200 · 8N1 is the common default).
 
 **The device prints but nothing shows up.**
-Check the newline convention — some devices emit `\r` only. Also confirm **HEX**
-mode is off. A prompt without a trailing newline is flushed after ~250 ms of
+Check the newline convention — some devices emit `\r` only. Also try the **HEX**
+view to see exactly which bytes arrive. A prompt without a trailing newline is flushed after ~250 ms of
 silence, so `> ` style prompts should still appear.
 
 **It disconnects on its own.**
 IsoDAQ Studio auto-detects a dropped port (cable pulled, board reset) and resets
 the UI. Reconnect after the device re-enumerates (press **⟳** if the port name
 changed).
+
+## High data rates & binary data
+
+**Reading a flash dump / binary data used to crash or hang the app.**
+Fixed in 0.4.0. Data without line breaks is now split into 4 KB pieces, and
+control bytes are shown as `·`. Turn on the **HEX** view to see the exact bytes
+with offsets, and the [Data Logger](Data-Logger) still records every line.
+
+**At a high baud rate the terminal says "Display caught up — N lines were logged
+and trigger-checked but not drawn".**
+The data rate was higher than the screen could draw, so the oldest lines were
+skipped *on screen only* — they are in your log files and were checked by your
+triggers. See [Performance & High Data Rates](Performance-and-High-Data-Rates).
+
+**My CSV log won't open ("line contains NUL").**
+Logs written by versions before 0.4.0 could contain NUL bytes from binary data.
+Strip them (e.g. `tr -d '\000' < old.csv > fixed.csv`); 0.4.0+ writes `·` instead.
+
+**The HEX rows wrap onto two lines.**
+The terminal is too narrow for 16 bytes per row — collapse the side tool windows
+(click their stripe name) or widen the window.
 
 ## Parsing / views
 

@@ -16,33 +16,52 @@ read the docstring at the top of each file in `core/`.
 Rule of thumb: **`core/` never imports `ui/`.** Logic is GUI-agnostic and
 communicates outward via Qt signals; the UI wires those signals to widgets.
 
-## Data flow (one received serial line)
+## Connections
+
+A `core/connection.py` **`Connection`** is one device: its transport readers
+(Serial / Network / SSH, cached per kind), `DataParser`, `TriggerEngine`,
+`Logger`, status figures (RX/TX bytes, line rate, errors, session time, failed
+flag), the toolbar selection, and the RX backlog. The UI attaches that
+connection's panels (terminal, parse, chart, indicator, trigger, events,
+analytics, logger panel). `MainWindow` keeps a list of connections and an
+**active** one; properties such as `_parser`, `_reader`, `_terminal` delegate to
+the active connection, and switching tabs swaps every per-connection stack.
+
+## Data flow (received data)
 
 ```
-        serial device
-             │  bytes
-             ▼
-   ┌───────────────────────┐   QThread, own timestamp
-   │ core/serial_reader.py │
-   │   SerialReader        │
-   └───────────┬───────────┘
-               │ line_received(line, ts)   ← Qt signal (queued → GUI thread)
-               ▼
-        ui/main_window.py  ── fans the line out to: ───────────────┐
-               │                        │                          │
-               ▼                        ▼                          ▼
-   ┌────────────────────┐   ┌────────────────────┐   ┌──────────────────────┐
-   │ core/data_parser   │   │ core/triggers      │   │ core/logger          │
-   │  DataParser.parse  │   │  TriggerEngine.    │   │  Logger.write_line   │
-   │  → {chan: value}   │   │  check → callbacks │   │  → queue → writer thr│
-   └─────────┬──────────┘   └─────────┬──────────┘   └──────────┬───────────┘
-             ▼                        ▼                         ▼
-   chart / indicator panels   flash·log·sound·notify·     .csv / .json / .txt
-                              analytics·events row        + .db (SQLite WAL)
-             │
-             └──────────────► if a session is shared, the same line is also
-                              handed to core/session_server for broadcast.
+     device ── bytes ──▶ reader thread (Serial / Network / SSH)
+                           │  core/stream_reader.py
+                           │  LineSplitter: one split per read, 4 KB line cap,
+                           │  partial-line flush after 250 ms of silence
+                           │  deliver(): decode, control chars → "·", timestamp
+                           ▼
+              lines_received([(text, ts, arrival, raw_bytes), …])
+                           │  one queued Qt signal per *read*, not per line
+                           ▼
+   GUI thread:  MainWindow._on_conn_lines  →  connection.rx_backlog
+                           │
+                           ▼
+   MainWindow._drain_rx   (QTimer 15 ms, ≤ 12 ms of work, round-robin)
+       │   _shed_overload: lines > 1 s old → logger + triggers only
+       ▼
+   MainWindow._on_conn_line(conn, text, ts, raw)
+       ├── conn.logger.write_line      → queue → _LogWriter thread → .csv/.json/.txt + .db (WAL)
+       ├── MainWindow._log             → conn.term_pending → _flush_terminal (~30 fps,
+       │                                  text or HEX dump decided on arrival)
+       ├── conn.engine.check           → TriggerController (queued) → flash banner,
+       │                                  events row, analytics, notifications
+       ├── conn.parser.parse           → chart / indicator / parse panel buffers
+       │                                  (charts + analytics redraw on timers, only if visible)
+       └── (active connection) macro runner wait-for, SessionServer broadcast
 ```
+
+Design rules that keep this fast (see the 0.4.0 stress tests in
+[the wiki](https://github.com/AlexShateljuk/isodaq/wiki/Performance-and-High-Data-Rates)):
+never touch a widget per line — buffer and paint on a timer; never call
+`setStyleSheet` per sample; never let the GUI thread work for more than one
+budget slice before repainting; anything that must see every line (logger,
+triggers) stays cheap so it can run even when drawing is skipped.
 
 ## Threading model
 
@@ -51,7 +70,7 @@ Everything heavy runs off the GUI thread and reports back via **Qt signals**
 
 | Thread | Owner | Purpose |
 |--------|-------|---------|
-| Serial reader | `SerialReader(QThread)` | read bytes, split lines, timestamp |
+| Readers (one per connection) | `SerialReader` / `NetworkReader` (`StreamReader(QThread)`), `SSHReader(QThread)` | read bytes, split lines, timestamp, batch to GUI |
 | Log writer | `_LogWriter(threading.Thread)` in `logger.py` | batched file + SQLite writes |
 | Session server | `SessionServer` background thread | TCP accept/broadcast + relay push |
 | Session client | `SessionClient(QThread)` | TCP read **or** relay long-poll |
@@ -93,12 +112,15 @@ Two features run user Python by design — see [SECURITY.md](../SECURITY.md):
 | a new serial value format | `core/data_parser.py` (`_from_kv` / `_try_json`) + a test |
 | a new trigger action | `core/triggers.py` (action flag) + `ui/main_window.py` handler |
 | a new log format | `core/logger.py` `_FileWriter._fmt_line` |
-| a new right-panel tab | a new `ui/*_panel.py`, wired in `ui/main_window.py` |
+| a new tool window | a `ui/*_panel.py` + an entry in `MainWindow.TOOLS` (edge + title) and `_populate_tool_windows` |
+| a new transport | a `core/*_reader.py` subclass of `StreamReader` + `SerialController._reader_for` |
+| a command-palette entry | `MainWindow._palette_commands` (menu actions are picked up automatically) |
 | a sharing/relay change | `core/session_*.py` + `relay/server.py` (keep them in sync) |
 
 ## Testing
 
-`tests/` covers the pure-logic modules (triggers, parser, logger, signaling) —
-none import PyQt/numpy, so CI runs them without GUI deps. Run `pytest` and
+`tests/` covers the pure-logic modules (triggers, parser, logger, signaling,
+line splitting) plus offscreen main-window smoke tests (multi-connection routing,
+HEX rendering, command palette); the GUI tests skip when PyQt6 isn't installed. Run `pytest` and
 `ruff check .` before a PR (both gate CI). Use `emulator/` +
 `python test_vport.py` to exercise the serial path without hardware.

@@ -2,7 +2,7 @@
 
 The parser turns raw serial lines into **named numeric channels** that feed the
 [Live Views](Live-Views) (Graphs / Indicators / Trigger-Events columns). Manage
-channels in the **Parsing** sidebar section.
+channels in the **Parsing** tool window (left edge). Each connection has its own channels.
 
 <img src="https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/panel-parsing.png" alt="Parser channel editor" width="340" align="right">
 
@@ -18,8 +18,8 @@ Click **+ Add** in the Parsing header to open the channel editor:
 | **Unit** | Disambiguates when several values share a key (see below). |
 | **×** (scale) | Multiply the extracted number. |
 | **+** (offset) | Add after scaling. |
-| **Add to Chart** | Show this channel in the **Graphs** tab. |
-| **Add to Indicators** | Show this channel in the **Indicators** tab. |
+| **Add to Chart** | Show this channel in the **Graphs** tool window. |
+| **Add to Indicators** | Show this channel in the **Indicators** tool window. |
 
 Use the **Test** field to paste a sample line and press **▶** — you'll see the
 extracted value (`✓ 52.4`) or a miss (`✗ key not found`) before you save.
@@ -67,14 +67,14 @@ channel: it reads a **JSON** object if the line contains one
 token (`DATA: ch1=1.23,ch2=4.56`). See the value-formats table above. For anything
 those can't express, use a [custom Python snippet](#custom-python-snippet).
 
-At the top of the **Parsing** section, **New-channel prefix** sets the prefix
+At the top of the **Parsing** tool window, **New-channel prefix** sets the prefix
 pre-filled when you click **+ Add** — a convenience only; each channel keeps its
 own prefix in the editor.
 
 ## Custom Python snippet
 
 For anything the field-based rules can't express, expand **Custom Snippet** in
-the Parsing section and write a small function body:
+the Parsing tool window and write a small function body:
 
 ```python
 import re
@@ -95,8 +95,8 @@ return {k: float(v) for k, v in m}
 Every parsed value updates, in real time:
 
 - the **live value** shown next to the channel in the Parsing list,
-- the **[Graphs](Live-Views#graphs)** tab (if *Add to Chart*),
-- the **[Indicators](Live-Views#indicators)** tab (if *Add to Indicators*),
+- the **[Graphs](Live-Views#graphs)** tool window (if *Add to Chart*),
+- the **[Indicators](Live-Views#indicators)** tool window (if *Add to Indicators*),
 - a per-channel **column** in the [Trigger Events](Live-Views#trigger-events) table.
 
 Channels (and the custom snippet) are saved with your session settings and
