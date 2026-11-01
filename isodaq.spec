@@ -115,6 +115,6 @@ if sys.platform == "darwin":
         bundle_identifier="com.esomtech.isodaq-studio",
         info_plist={
             "NSHighResolutionCapable": True,
-            "CFBundleShortVersionString": "0.3.0",
+            "CFBundleShortVersionString": "0.4.0",
         },
     )
