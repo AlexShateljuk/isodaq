@@ -28,6 +28,28 @@ Tick any combination per trigger:
 | **Sound** | System beep |
 | **Pause log** | Stop the active logging session |
 | **Resume log** | Restart a stopped logging session |
+| **Reply** | Send text back to the device (auto-response) — see below |
+
+### Auto-reply
+
+Fill in **Reply** to answer the device automatically whenever the trigger
+matches — log in to a console, acknowledge a frame, answer a prompt:
+
+| Trigger | Reply | Device gets |
+|---------|-------|-------------|
+| `login:` | `root` | `root⏎` |
+| `[regex] PING (\d+)` | `PONG \1` | `PONG 42⏎` for `PING 42` |
+| `[regex] REQ id=(?P<id>\w+)` | `ACK \g<id>` | `ACK a7⏎` |
+| `Press any key` | `\x1B` | ESC (no text) + line ending |
+
+- Regex triggers can insert captured groups: `\1` … `\9`, `\g<name>`.
+- Escapes: `\r \n \t \0 \xHH` (any byte), `\\` for a backslash.
+- The command bar's **line ending** (`\r\n`, `\n`, …) is appended.
+- The reply shows in the terminal as `TX ↩ …  [trigger name]` and counts in TX;
+  rules with a reply show **↩** in the list.
+- **Loop guard**: if the same trigger fires again within 100 ms its reply is
+  skipped (a device that echoes your reply would otherwise loop forever); the
+  terminal says so once.
 
 Every match also increments the trigger's **hit counter** (shown live in the
 list), records a row in the [Trigger Events](Live-Views#trigger-events) table, and

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Auto-reconnect** — when a link drops (board reset, cable re-plugged, network
+  bridge restarted), the connection keeps its settings and retries every second
+  (network/SSH every 3 s) until the device is back, then carries on in the same
+  terminal. A re-plugged USB board is found again by VID:PID + serial number even
+  if the OS gives it a new name (`ttyUSB0` → `ttyUSB1`). The status bar shows
+  `Reconnecting… N s` and the Connect button becomes **Stop**. On by default;
+  `⋯ → Link → Auto-reconnect`.
+- **DTR / RTS / BREAK and board reset** — `⋯ → Lines` toggles DTR and RTS
+  (applied on connect and live) and sends a 250 ms BREAK; `⋯ → Reset` pulses
+  **Board** (RTS → EN, ESP32/ESP8266), **DTR pulse** (Arduino) or
+  **Bootloader** (esptool's sequence into the ESP ROM bootloader). Also in the
+  command palette.
+- **Custom baud rates** — the baud box is editable: type any rate (74880 for
+  ESP8266 boot messages, 250000, 1000000 …); 74880, 250000, 500000, 1000000 and
+  2000000 are in the list.
+- **Port descriptions** — the port list shows what each port is
+  ("CP2102 USB to UART Bridge Controller", "STM32 STLink Virtual COM Port"), with
+  USB VID:PID and serial number in the tooltip.
+- **Trigger auto-reply** — a trigger can send a **Reply** to the device when it
+  matches (`login:` → `root`). Regex triggers can insert captured groups
+  (`PING (\d+)` → `PONG \1`); escapes `\r \n \t \0 \xHH`. The command bar's
+  line ending is appended. Replies to the same trigger closer than 100 ms apart
+  are skipped so a device that echoes the reply can't loop forever.
+- **Chart view controls** — the Graphs footer gets a time-window selector
+  (10 s … 15 min, All), buffer size (2k – 500k points per channel), **Pause**
+  (freeze the view while data keeps recording; pan/zoom freely) and **Y lock**.
+
+### Fixed
+- Trigger list rows were briefly painted on top of each other after adding or
+  editing a trigger.
+- A chart channel's legend entry was placed between the PNG and CSV buttons.
+- The font −/+ buttons in the `⋯` popover showed no text.
+
 ## [0.4.0] — 2026-11-01
 
 ### Added

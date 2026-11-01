@@ -134,6 +134,13 @@ class StreamReader(QThread):
         self._serial = None
         self._running = False
         self._disconnected_emitted = False
+        #: True when the last session ended because the link dropped (I/O error
+        #: or remote close) rather than a user disconnect — drives auto-reconnect.
+        self.lost = False
+        #: Modem-control lines applied on open and kept while connected (CMP2).
+        #: pyserial asserts both by default; ``None`` leaves the driver default.
+        self.dtr: bool | None = None
+        self.rts: bool | None = None
 
     # ── To implement in subclasses ────────────────────────────────────────────
 
@@ -155,6 +162,7 @@ class StreamReader(QThread):
         except Exception as e:
             return str(e)
         self._disconnected_emitted = False   # reset per-connection (see B1)
+        self.lost = False
         self._running = True
         self.start()
         label, baud = self._conn_label()
@@ -183,6 +191,53 @@ class StreamReader(QThread):
             return None
         except Exception as e:
             return str(e)
+
+    # ── Modem-control lines (CMP2) ───────────────────────────────────────────
+
+    def set_lines(self, dtr: bool | None = None, rts: bool | None = None) -> str | None:
+        """Set DTR and/or RTS (remembered for the next open too). Returns an
+        error string if the open transport can't do it, else ``None``."""
+        if dtr is not None:
+            self.dtr = dtr
+        if rts is not None:
+            self.rts = rts
+        ser = self._serial
+        if ser is None or not getattr(ser, "is_open", False):
+            return None
+        try:
+            if dtr is not None:
+                ser.dtr = dtr
+            if rts is not None:
+                ser.rts = rts
+                # Windows usbser drivers only apply RTS together with DTR
+                # (same workaround as esptool).
+                if self.dtr is not None:
+                    ser.dtr = self.dtr
+        except Exception as e:
+            return str(e) or "DTR/RTS not supported by this transport"
+        return None
+
+    def set_break(self, on: bool) -> str | None:
+        """Hold (``True``) or release the BREAK condition. The caller times the
+        pulse (a QTimer), so the GUI thread never blocks in ``send_break``."""
+        ser = self._serial
+        if ser is None or not getattr(ser, "is_open", False):
+            return "Not connected"
+        try:
+            ser.break_condition = on
+        except Exception as e:
+            return str(e) or "BREAK not supported by this transport"
+        return None
+
+    def _apply_lines(self, ser) -> None:
+        """Apply the remembered DTR/RTS to a freshly opened port."""
+        try:
+            if self.dtr is not None:
+                ser.dtr = self.dtr
+            if self.rts is not None:
+                ser.rts = self.rts
+        except Exception:
+            pass
 
     # ── Reader loop ───────────────────────────────────────────────────────────
 
@@ -230,6 +285,7 @@ class StreamReader(QThread):
         # handled it (user-initiated stop sets _running=False before joining).
         if self._running:
             self._running = False
+            self.lost = True
             self._disconnected_emitted = True
             try:
                 if self._serial is not None and getattr(self._serial, "is_open", False):

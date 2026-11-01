@@ -84,6 +84,14 @@ class Connection(QObject):
         self.rx_shed: int = 0
         self.hex_offset: int = 0       # bytes received so far (HEX view offsets)
 
+        # Auto-reconnect (CMP1): set while waiting for a lost link to come back.
+        # ``usb_id`` is the (vid, pid, serial) of the serial port at connect, so
+        # a board that re-enumerates under a new name is still found.
+        self.reconnecting: bool = False
+        self.reconnect_tries: int = 0
+        self.usb_id: tuple | None = None
+        self.replies_dropped: int = 0   # trigger replies skipped by the loop guard
+
     @property
     def short_name(self) -> str:
         """Compact tab label: drop URL schemes and /dev/ (full name in tooltip)."""

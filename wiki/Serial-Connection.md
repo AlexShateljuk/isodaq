@@ -10,9 +10,9 @@ connection (the selected [connection tab](Multiple-Connections)).
 | **Transport** | Serial · Network · SSH | what kind of source this connection reads |
 | **Port / target** | serial ports · a URL · a saved SSH session | see the transports below |
 | **↻** | — | rescan serial ports (in SSH mode it becomes **✎** to edit the session) |
-| **Baud** | 9600 · 19200 · 38400 · 57600 · 115200 · 230400 · 460800 · 921600 | must match your firmware |
+| **Baud** | 9600 … 74880 · 115200 … 921600 · 1000000 · 2000000 — or **type any rate** | must match your firmware; custom rates need driver support (real USB adapters have it, virtual ports often don't) |
 | **Connect** | — | toggles to **Disconnect** once open |
-| **`⋯`** | Data (8N1 · 8E1 · 8O1 · 7N1), Flow (None · RTS/CTS · XON/XOFF), Timestamp / HEX / Autoscroll / Echo, font size, Clear | set-once options |
+| **`⋯`** | Data (8N1 · 8E1 · 8O1 · 7N1), Flow (None · RTS/CTS · XON/XOFF), **Lines** (DTR · RTS · BREAK), **Reset** (Board · DTR pulse · Bootloader), **Auto-reconnect**, Timestamp / HEX / Autoscroll / Echo, font size, Clear | set-once options |
 
 The toolbar always shows the **active tab's** transport, target and baud;
 switching tabs switches what it shows.
@@ -22,7 +22,9 @@ switching tabs switches what it shows.
 ### Serial
 
 A local COM / tty port. Pick it from the list (press **↻** after plugging a
-device in). On macOS prefer the `/dev/cu.*` entry.
+device in). Each entry shows what the OS knows about the port — e.g.
+`/dev/cu.usbserial-0001   CP2102 USB to UART Bridge Controller` — with the USB
+VID:PID and serial number in the tooltip. On macOS prefer the `/dev/cu.*` entry.
 
 ### Network
 
@@ -59,11 +61,49 @@ line sends to the remote command's stdin.
 3. The status bar turns green and reads `● PORT · BAUD`, the session timer starts,
    and a `Connected: …` line is written to the terminal.
 
-Click **Disconnect** (same button) to close it. If the device disappears (cable
-pulled, board reset, host unreachable), IsoDAQ Studio detects it, shows
-`● Connection failed` in red, marks the connection with a red **✕** in the
-[Devices](Multiple-Connections) list and counts it under **Errors**. The mark
-clears on the next successful connect.
+Click **Disconnect** (same button) to close it.
+
+### Auto-reconnect
+
+If the link drops — cable pulled, board reset, network bridge restarted —
+IsoDAQ Studio keeps the connection's settings and **waits for the device to come
+back**:
+
+- the status bar shows `● Reconnecting… N s` in amber, the tab and the
+  [Devices](Multiple-Connections) entry turn amber with **↻**, and the Connect
+  button becomes **Stop** (click it to give up);
+- serial ports are retried every second; a re-plugged USB board is found again
+  by its VID:PID + serial number even if it comes back under a new name
+  (`ttyUSB0` → `ttyUSB1`); network and SSH targets are retried every 3 s;
+- when it is back the terminal says `Reconnected: … (after N s)` and data flows
+  into the same terminal, log and charts.
+
+A disconnect you make yourself never reconnects. Turn the behaviour off under
+`⋯ → Link → Auto-reconnect`; then a lost link shows `● Connection failed` in
+red, a red **✕** in the Devices list and counts under **Errors** until the next
+successful connect.
+
+### DTR, RTS, BREAK and resetting the board
+
+`⋯ → Lines`:
+
+- **DTR / RTS** — the modem-control lines, applied when connecting and
+  immediately when toggled. Both are on by default (the usual driver default).
+  Untick one if your board's auto-reset circuit holds it in reset while
+  connected.
+- **BREAK** — holds the line in BREAK for 250 ms (some bootloaders and Linux
+  consoles use it as a "magic" key).
+
+`⋯ → Reset` (also in the [command palette](Interface-Overview#command-palette)):
+
+| Button | Sequence | For |
+|--------|----------|-----|
+| **Board** | RTS on 100 ms with DTR off → release | ESP32 / ESP8266 dev boards (RTS drives EN) |
+| **DTR pulse** | DTR off 100 ms → on | Arduino Uno / Nano / Mega (reset through the DTR capacitor) |
+| **Bootloader** | esptool's sequence: hold GPIO0 low (DTR) while pulsing EN (RTS) | ESP chips — enter the ROM bootloader |
+
+Afterwards the lines return to the DTR/RTS checkboxes. Network (`rfc2217://`)
+connections forward the lines; raw `socket://` and SSH can't, and say so.
 
 Need more than one device? Click **`+`** next to the tabs — see
 [Multiple Connections](Multiple-Connections).

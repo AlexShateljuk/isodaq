@@ -29,7 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor, QAction
+from PyQt6.QtGui import QColor, QFont, QIntValidator, QTextCharFormat, QTextCursor, QAction
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -65,6 +65,7 @@ from ui.chart_panel import ChartPanel
 from ui.indicator_panel import IndicatorPanel
 from ui.trigger_events_panel import TriggerEventsPanel
 from ui.tool_window import StripeBar, ToolDock
+from ui.port_list import PortDelegate
 from ui.themes import build_stylesheet, install_font_fallbacks, install_layout_fixes, theme_colors, THEME_NAMES, key_from_display, set_current_theme, tint_titlebar
 from ui.controllers.session_controller import SessionController
 from ui.controllers.update_manager import UpdateManager
@@ -552,8 +553,10 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _conn_state_color(conn) -> QColor:
-        """Connected → the connection's tint; failed / link lost → error red;
-        idle → dim."""
+        """Connected → the connection's tint; waiting to reconnect → amber;
+        failed / link lost → error red; idle → dim."""
+        if conn.reconnecting:
+            return C_SYS
         if conn.reader.isRunning():
             return conn.color
         return C_ERR if conn.failed else C_DIM
@@ -583,6 +586,7 @@ class MainWindow(QMainWindow):
         if conn is None:
             return
         index = self._conn_tab_index(cid)
+        self._serial.stop_reconnect(conn, quiet=True)
         for r in conn.readers.values():
             if r.isRunning():
                 r.disconnect_port()
@@ -657,10 +661,15 @@ class MainWindow(QMainWindow):
         status bar (called when switching tabs)."""
         conn = self._active_conn
         running = conn.reader.isRunning()
-        self._conn_btn.setText(tr("Disconnect") if running else tr("Connect"))
-        self._conn_btn.setObjectName("disconnectBtn" if running else "connectBtn")
+        busy = running or conn.reconnecting
+        self._conn_btn.setText(tr("Stop") if conn.reconnecting
+                               else tr("Disconnect") if running else tr("Connect"))
+        self._conn_btn.setObjectName("disconnectBtn" if busy else "connectBtn")
         self._repolish(self._conn_btn)
-        if running:
+        if conn.reconnecting:
+            self._sb_conn.setText("● " + tr("Reconnecting… {s} s").format(s=conn.reconnect_tries))
+            self._sb_conn.setStyleSheet(f"color:{C_SYS.name()}")
+        elif running:
             self._sb_conn.setText(f"● {conn.name}")
             self._sb_conn.setStyleSheet(f"color:{C_OK.name()}")
         else:
@@ -727,6 +736,7 @@ class MainWindow(QMainWindow):
         self._port_combo.activated.connect(self._on_port_activated)
         self._port_combo.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._port_combo.customContextMenuRequested.connect(self._on_port_context_menu)
+        self._port_combo.setItemDelegate(PortDelegate(self._port_combo))
         lay.addWidget(self._port_combo, 1)
 
         self._refresh_btn = QPushButton("↻")
@@ -736,12 +746,18 @@ class MainWindow(QMainWindow):
         self._refresh_btn.clicked.connect(self._on_refresh_clicked)
         lay.addWidget(self._refresh_btn)
 
+        # Editable (CMP3): any rate the driver accepts — 74880 for ESP8266 boot
+        # logs, 250000, 1000000+ for fast USB bridges.
         self._baud_combo = QComboBox()
-        self._baud_combo.addItems(["9600", "19200", "38400", "57600",
-                                   "115200", "230400", "460800", "921600"])
+        self._baud_combo.setEditable(True)
+        self._baud_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._baud_combo.addItems(["9600", "19200", "38400", "57600", "74880",
+                                   "115200", "230400", "250000", "460800", "500000",
+                                   "921600", "1000000", "2000000"])
         self._baud_combo.setCurrentText("115200")
+        self._baud_combo.setValidator(QIntValidator(1, 100_000_000, self._baud_combo))
         self._baud_combo.setFixedWidth(104)
-        self._baud_combo.setToolTip(tr("Baud rate"))
+        self._baud_combo.setToolTip(tr("Baud rate — pick one or type any rate"))
         lay.addWidget(self._baud_combo)
 
         self._conn_btn = QPushButton(tr("Connect"))
@@ -789,6 +805,18 @@ class MainWindow(QMainWindow):
         self._chk_hex  = QCheckBox("HEX")
         self._chk_auto = QCheckBox(tr("Autoscroll")); self._chk_auto.setChecked(True)
         self._chk_echo = QCheckBox(tr("Echo"));       self._chk_echo.setChecked(True)
+        # Modem-control lines (CMP2). Asserted is pyserial's default on open.
+        self._chk_dtr = QCheckBox("DTR"); self._chk_dtr.setChecked(True)
+        self._chk_rts = QCheckBox("RTS"); self._chk_rts.setChecked(True)
+        self._chk_dtr.setToolTip(tr("Data Terminal Ready — applied on connect and when toggled"))
+        self._chk_rts.setToolTip(tr("Request To Send — applied on connect and when toggled"))
+        self._chk_dtr.toggled.connect(lambda on: self._serial.set_line("dtr", on))
+        self._chk_rts.toggled.connect(lambda on: self._serial.set_line("rts", on))
+        self._chk_reconnect = QCheckBox(tr("Auto-reconnect"))
+        self._chk_reconnect.setChecked(True)
+        self._chk_reconnect.setToolTip(tr(
+            "When the link drops (board reset, cable re-plugged, host down), "
+            "keep retrying with the same settings"))
         self._font_size_lbl = QLabel(str(self._terminal_font_size))
         self._font_size_lbl.setFixedWidth(20)
         self._font_size_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -824,26 +852,60 @@ class MainWindow(QMainWindow):
         grid.addWidget(self._lbl(tr("Flow"), dim=True), 1, 0)
         grid.addWidget(self._flow_combo, 1, 1)
 
-        grid.addWidget(self._hline(), 2, 0, 1, 2)
+        # Lines: DTR / RTS / BREAK and the reset sequences (CMP2).
+        grid.addWidget(self._lbl(tr("Lines"), dim=True), 2, 0)
+        lines_row = QHBoxLayout()
+        lines_row.setSpacing(8)
+        lines_row.addWidget(self._chk_dtr)
+        lines_row.addWidget(self._chk_rts)
+        brk = QPushButton("BREAK")
+        brk.setFixedHeight(22)
+        brk.setToolTip(tr("Send a 250 ms BREAK"))
+        brk.clicked.connect(lambda: self._serial.send_break())
+        lines_row.addWidget(brk)
+        lines_row.addStretch()
+        grid.addLayout(lines_row, 2, 1)
 
-        grid.addWidget(self._chk_ts,   3, 0)
-        grid.addWidget(self._chk_hex,  3, 1)
-        grid.addWidget(self._chk_auto, 4, 0)
-        grid.addWidget(self._chk_echo, 4, 1)
+        grid.addWidget(self._lbl(tr("Reset"), dim=True), 3, 0)
+        reset_row = QHBoxLayout()
+        reset_row.setSpacing(6)
+        for text, kind, tip in (
+                (tr("Board"), "esp", tr("Pulse RTS → EN (ESP32/ESP8266 dev boards)")),
+                (tr("DTR pulse"), "dtr", tr("Drop DTR for 100 ms (Arduino Uno/Nano/Mega)")),
+                (tr("Bootloader"), "esp_boot",
+                 tr("ESP ROM bootloader: hold GPIO0 low (DTR) while resetting (RTS)"))):
+            b = QPushButton(text)
+            b.setFixedHeight(22)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, k=kind: (menu.close(), self._serial.reset_board(k)))
+            reset_row.addWidget(b)
+        reset_row.addStretch()
+        grid.addLayout(reset_row, 3, 1)
+        grid.addWidget(self._lbl(tr("Link"), dim=True), 4, 0)
+        grid.addWidget(self._chk_reconnect, 4, 1)
 
         grid.addWidget(self._hline(), 5, 0, 1, 2)
+
+        grid.addWidget(self._chk_ts,   6, 0)
+        grid.addWidget(self._chk_hex,  6, 1)
+        grid.addWidget(self._chk_auto, 7, 0)
+        grid.addWidget(self._chk_echo, 7, 1)
+
+        grid.addWidget(self._hline(), 8, 0, 1, 2)
 
         font_row = QHBoxLayout()
         font_row.setSpacing(4)
         font_row.addWidget(self._lbl(tr("Font"), dim=True))
         font_dec = QPushButton("−")
         font_dec.setFixedSize(22, 22)
+        font_dec.setStyleSheet("padding:0;")
         font_dec.setToolTip(tr("Decrease terminal font size"))
         font_dec.clicked.connect(lambda: self._change_font_size(-1))
         font_row.addWidget(font_dec)
         font_row.addWidget(self._font_size_lbl)
         font_inc = QPushButton("+")
         font_inc.setFixedSize(22, 22)
+        font_inc.setStyleSheet("padding:0;")
         font_inc.setToolTip(tr("Increase terminal font size"))
         font_inc.clicked.connect(lambda: self._change_font_size(+1))
         font_row.addWidget(font_inc)
@@ -853,7 +915,7 @@ class MainWindow(QMainWindow):
         clr.clicked.connect(lambda: (self._active_conn.term_pending.clear(),
                                      self._terminal.clear(), menu.close()))
         font_row.addWidget(clr)
-        grid.addLayout(font_row, 6, 0, 1, 2)
+        grid.addLayout(font_row, 9, 0, 1, 2)
 
         act = QWidgetAction(menu)
         act.setDefaultWidget(panel)
@@ -1176,7 +1238,8 @@ class MainWindow(QMainWindow):
             fg = self._conn_state_color(conn)
             if fg == C_DIM and active:
                 fg = C_FG
-            mark = "●" if running else ("✕" if conn.failed else "○")
+            mark = ("↻" if conn.reconnecting else "●" if running
+                    else "✕" if conn.failed else "○")
             row.setText(f"{mark}  {conn.short_name}")
             row.setToolTip(conn.name)
             row.setStyleSheet(
@@ -1265,6 +1328,17 @@ class MainWindow(QMainWindow):
                     self._serial.toggle_connection),
             Command(tr("New connection"), tr("Connection"), self._add_connection),
             Command(tr("Rescan serial ports"), tr("Connection"), self._serial.refresh_ports),
+            Command(tr("Reset board (RTS → EN, ESP32/ESP8266)"), tr("Device"),
+                    lambda: self._serial.reset_board("esp")),
+            Command(tr("Reset board (DTR pulse, Arduino)"), tr("Device"),
+                    lambda: self._serial.reset_board("dtr")),
+            Command(tr("Enter ESP bootloader"), tr("Device"),
+                    lambda: self._serial.reset_board("esp_boot")),
+            Command(tr("Send BREAK"), tr("Device"), self._serial.send_break),
+            Command(f"DTR  ({on_off(self._chk_dtr)})", tr("Device"), self._chk_dtr.toggle),
+            Command(f"RTS  ({on_off(self._chk_rts)})", tr("Device"), self._chk_rts.toggle),
+            Command(f"{tr('Auto-reconnect')}  ({on_off(self._chk_reconnect)})", tr("Connection"),
+                    self._chk_reconnect.toggle),
             Command(tr("Clear terminal"), tr("Terminal"),
                     lambda: (self._active_conn.term_pending.clear(), self._terminal.clear())),
             Command(f"{tr('HEX view')}  ({on_off(self._chk_hex)})", tr("Terminal"),
@@ -1820,6 +1894,7 @@ class MainWindow(QMainWindow):
         # ("QThread: Destroyed while thread is still running").
         self._settings.save()
         for conn in self._connections:
+            conn.reconnecting = False
             for r in conn.readers.values():
                 if r.isRunning():
                     r.disconnect_port()

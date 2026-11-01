@@ -171,3 +171,45 @@ def test_roundtrip_to_from_dict_list():
     assert out[0].color == "#123456"
     assert out[1].action_sound is True
     assert out[1].matches("value 42")
+
+
+# ── Auto-response (reply) ───────────────────────────────────────────────────────
+
+def test_reply_contains_is_literal_with_escapes():
+    from core.triggers import render_reply
+    assert render_reply(r"root") == b"root"
+    assert render_reply(r"a\r\n\t\0\\b") == b"a\r\n\t\x00\\b"
+    assert render_reply(r"\x02STX\x03") == b"\x02STX\x03"
+    assert render_reply(r"keep \q as is") == b"keep \\q as is"
+
+
+def test_reply_substitutes_regex_groups():
+    t = Trigger(name="p", pattern=r"PING (\d+) id=(?P<id>\w+)", type="regex",
+                reply=r"PONG \1 \g<id> \2 \7")
+    assert t.compile() is None
+    assert t.render_reply("xx ping 42 id=ab") == b"PONG 42 ab ab "   # \7 absent → empty
+
+
+def test_reply_on_contains_trigger_ignores_groups():
+    t = Trigger(name="l", pattern="login:", reply=r"user \1")
+    assert t.render_reply("login:") == b"user "
+
+
+def test_reply_loop_guard():
+    t = Trigger(name="l", pattern="x", reply="y")
+    assert t.reply_due()
+    assert not t.reply_due()          # immediately again → dropped
+    t._last_reply -= Trigger.REPLY_MIN_INTERVAL
+    assert t.reply_due()
+
+
+def test_reply_survives_serialisation():
+    eng = TriggerEngine()
+    eng.add_trigger(Trigger(name="l", pattern="login:", reply=r"root\r"))
+    data = eng.to_dict_list()
+    assert data[0]["reply"] == r"root\r"
+    eng2 = TriggerEngine()
+    eng2.from_dict_list(data)
+    assert eng2.get_triggers()[0].reply == r"root\r"
+    eng2.from_dict_list([{"name": "old", "pattern": "x"}])   # pre-reply files load
+    assert eng2.get_triggers()[0].reply == ""

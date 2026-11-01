@@ -63,6 +63,7 @@ class NetworkReader(StreamReader):
             return "No network target set"
         self._serial = None            # run() opens in-thread
         self._disconnected_emitted = False
+        self.lost = False
         self._running = True
         self.start()
         return None
@@ -71,7 +72,7 @@ class NetworkReader(StreamReader):
 
     def _open(self):
         import serial  # pyserial
-        return serial.serial_for_url(
+        ser = serial.serial_for_url(
             self._url,
             baudrate=self._baud,
             bytesize=self._bytesize,
@@ -82,6 +83,8 @@ class NetworkReader(StreamReader):
             timeout=0.05,
             write_timeout=1.0,
         )
+        self._apply_lines(ser)   # RFC 2217 forwards DTR/RTS; raw sockets ignore them
+        return ser
 
     def _conn_label(self) -> tuple[str, int]:
         return (self._url, 0)   # baud is meaningless for a raw socket

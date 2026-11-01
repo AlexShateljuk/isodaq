@@ -47,6 +47,7 @@ class SSHReader(QThread):
         super().__init__(parent)
         self._running = False
         self._disconnected_emitted = False
+        self.lost = False          # link dropped after connecting (see StreamReader)
         self._client = None
         self._chan = None
         self._host = ""
@@ -80,6 +81,7 @@ class SSHReader(QThread):
         if not self._host:
             return "No SSH host set"
         self._disconnected_emitted = False
+        self.lost = False
         self._running = True
         self.start()   # handshake + read loop run in run()
         return None
@@ -158,6 +160,7 @@ class SSHReader(QThread):
         self._cleanup()
         if self._running:
             self._running = False
+            self.lost = True
             self._disconnected_emitted = True
             self.disconnected.emit()
 
@@ -187,6 +190,14 @@ class SSHReader(QThread):
 
             if not got:
                 time.sleep(0.02)
+
+    @staticmethod
+    def set_lines(dtr=None, rts=None) -> str | None:   # pylint: disable=unused-argument
+        return "DTR/RTS are not available over SSH"
+
+    @staticmethod
+    def set_break(on: bool) -> str | None:   # pylint: disable=unused-argument
+        return "BREAK is not available over SSH"
 
     # ── Helpers ─────────────────────────────────────────────────────────────────
 

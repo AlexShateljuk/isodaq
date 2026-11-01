@@ -38,7 +38,8 @@ class SettingsManager(QObject):
                 if idx >= 0:
                     combo.setCurrentIndex(idx)
 
-        _set_combo(mw._baud_combo,   "baud")
+        if str(data.get("baud", "")).isdigit():     # editable: custom rates too
+            mw._baud_combo.setCurrentText(str(data["baud"]))
         _set_combo(mw._data_combo,   "data")
         _set_combo(mw._flow_combo,   "flow")
         _set_combo(mw._eol_combo,    "eol")
@@ -84,6 +85,10 @@ class SettingsManager(QObject):
         if "hex"        in data: mw._chk_hex.setChecked(bool(data["hex"]))
         if "autoscroll" in data: mw._chk_auto.setChecked(bool(data["autoscroll"]))
         if "echo"       in data: mw._chk_echo.setChecked(bool(data["echo"]))
+        if "dtr"        in data: mw._chk_dtr.setChecked(bool(data["dtr"]))
+        if "rts"        in data: mw._chk_rts.setChecked(bool(data["rts"]))
+        if "auto_reconnect" in data:
+            mw._chk_reconnect.setChecked(bool(data["auto_reconnect"]))
 
         if "font_size" in data:
             mw._terminal_font_size = max(8, min(24, int(data["font_size"])))
@@ -165,6 +170,9 @@ class SettingsManager(QObject):
                 "hex":        mw._chk_hex.isChecked(),
                 "autoscroll": mw._chk_auto.isChecked(),
                 "echo":       mw._chk_echo.isChecked(),
+                "dtr":        mw._chk_dtr.isChecked(),
+                "rts":        mw._chk_rts.isChecked(),
+                "auto_reconnect": mw._chk_reconnect.isChecked(),
                 "font_size":  mw._terminal_font_size,
                 "scrollback": mw._scrollback_limit,
                 "theme":      mw._current_theme,

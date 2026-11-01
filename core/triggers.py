@@ -1,4 +1,4 @@
-"""
+r"""
 core/triggers.py — Trigger engine
 
 Supported trigger types (set via prefix in the text field):
@@ -13,11 +13,15 @@ Each trigger can fire any combination of actions:
   action_sound  — system beep
   action_pause  — pause the active log session
   action_resume — resume the log session
+  reply         — send a reply to the device (auto-response, CMP7); regex
+                  groups are substituted: \1 … \9, \g<name>; escapes \r \n
+                  \t \0 \xHH \\
 """
 from __future__ import annotations
 
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -49,6 +53,10 @@ class Trigger:
     notify_url:     str = ""   # webhook URL or Telegram sendMessage URL
     notify_tg_chat: str = ""   # Telegram chat_id (ignored for generic webhooks)
 
+    # Auto-response (CMP7): sent to the device on a match, plus the command
+    # bar's line ending. Empty = no reply.
+    reply: str = ""
+
     hit_count: int = 0
 
     # Internal compiled state
@@ -57,6 +65,11 @@ class Trigger:
     # Security: a "python" trigger loaded from an untrusted source is blocked
     # from ever being eval()'d until the user explicitly trusts/edits it.
     _blocked:  bool       = field(default=False, repr=False)
+    _last_reply: float    = field(default=0.0, repr=False)
+
+    #: A reply that the device echoes back could re-trigger itself forever;
+    #: replies closer together than this are dropped.
+    REPLY_MIN_INTERVAL = 0.1
 
     def compile(self) -> str | None:
         """Returns error string on failure, None on success."""
@@ -94,6 +107,23 @@ class Trigger:
         except Exception:
             return False
         return False
+
+    def render_reply(self, line: str) -> bytes:
+        """The reply for *line*: regex groups substituted, escapes decoded."""
+        m = None
+        if self.type == "regex":
+            if self._compiled is None:
+                self._compiled = re.compile(self.pattern, re.IGNORECASE)
+            m = self._compiled.search(line)
+        return render_reply(self.reply, m)
+
+    def reply_due(self) -> bool:
+        """Rate guard for the reply (see ``REPLY_MIN_INTERVAL``)."""
+        now = time.monotonic()
+        if now - self._last_reply < self.REPLY_MIN_INTERVAL:
+            return False
+        self._last_reply = now
+        return True
 
     def trust(self) -> str | None:
         """Un-block a previously blocked Python trigger and (re)compile it."""
@@ -178,6 +208,7 @@ class TriggerEngine:
                 "action_resume": t.action_resume,
                 "notify_url":     t.notify_url,
                 "notify_tg_chat": t.notify_tg_chat,
+                "reply":          t.reply,
             } for t in self._triggers]
 
     @staticmethod
@@ -203,6 +234,7 @@ class TriggerEngine:
                 action_resume=d.get("action_resume",False),
                 notify_url=d.get("notify_url",""),
                 notify_tg_chat=d.get("notify_tg_chat",""),
+                reply=d.get("reply",""),
             )
             if t.type == "python" and not allow_python:
                 t._blocked = True
@@ -210,6 +242,39 @@ class TriggerEngine:
             t.compile()   # blocked python triggers skip eval; errors are non-fatal
             with self._lock:
                 self._triggers.append(t)
+
+
+_REPLY_TOKEN = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|g<(\w+)>|([1-9])|(.))", re.DOTALL)
+_REPLY_ESC = {"r": b"\r", "n": b"\n", "t": b"\t", "0": b"\0", "\\": b"\\"}
+
+
+def render_reply(template: str, match: re.Match | None = None) -> bytes:
+    r"""Expand a reply template to bytes.
+
+    ``\1`` … ``\9`` / ``\g<name>`` insert regex groups (empty if absent),
+    ``\r \n \t \0 \\`` and ``\xHH`` are byte escapes; anything else is
+    literal UTF-8."""
+    out = bytearray()
+    pos = 0
+    for tok in _REPLY_TOKEN.finditer(template):
+        out += template[pos:tok.start()].encode()
+        hexb, name, num, ch = tok.groups()
+        if hexb:
+            out.append(int(hexb, 16))
+        elif name or num:
+            try:
+                val = match.group(name or int(num)) if match else None
+            except IndexError:
+                val = None
+            out += (val or "").encode()
+        elif ch in _REPLY_ESC:
+            out += _REPLY_ESC[ch]
+        else:
+            out += ("\\" + ch).encode()
+        pos = tok.end()
+    out += template[pos:].encode()
+    return bytes(out)
+
 
 
 def parse_trigger_line(text: str) -> tuple[str, str]:

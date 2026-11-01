@@ -15,8 +15,13 @@ Channels appear here once you tick **Add to Chart** / **Add to Indicators** in t
 Real-time scrolling line chart (pyqtgraph):
 
 - Up to **8 simultaneous channels**, each with a distinct colour.
-- **60-second rolling window**, backed by a **20 000-point ring buffer** per
-  channel — old points age out, memory stays bounded.
+- A rolling **time window** — 10 s, 30 s, **1 min** (default), 5 min, 15 min or
+  **All** (everything buffered) — picked in the footer.
+- A **ring buffer** per channel of 2k, **20k** (default), 100k or 500k points —
+  old points age out, memory stays bounded.
+- **❚❚ Pause** freezes the view while data keeps recording — pan and zoom
+  freely, then **▶** to follow live again.
+- **Y🔒** locks the vertical range at its current span (off = auto-scale).
 - **Mouse pan and zoom** on both axes.
 - A colour **legend strip** below the chart names each channel.
 - **PNG** exports the plot as an image; **CSV** exports the buffered data (a

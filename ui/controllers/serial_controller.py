@@ -14,13 +14,20 @@ they are read through the module at call time (``_win.C_ERR``).
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 
 import ui.main_window as _win   # colour globals (runtime access only)
 from core.i18n import tr
 from core.net_reader import NetworkReader
 from core.serial_reader import SerialReader
 from core.ssh_reader import SSHReader
+
+
+#: POSIX termios rates; anything else needs the driver's custom-baud ioctl.
+STANDARD_BAUDS = {50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
+                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000,
+                  576000, 921600, 1000000, 1152000, 1500000, 2000000, 2500000,
+                  3000000, 3500000, 4000000}
 
 
 class SerialController(QObject):
@@ -32,6 +39,10 @@ class SerialController(QObject):
         self._cmd_history: list[str] = []
         self._hist_idx: int = 0
         self._ssh_pw_cache: dict[str, str] = {}  # session name → password (this run only)
+        # Auto-reconnect (CMP1): one 1 s tick serves every waiting connection.
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setInterval(1000)
+        self._reconnect_timer.timeout.connect(self._reconnect_tick)
 
     def wire_reader(self, conn, reader) -> None:
         """Wire a reader's signals, capturing its owning *conn* so RX lines and
@@ -69,8 +80,12 @@ class SerialController(QObject):
         return r
 
     def toggle_connection(self) -> None:
-        """Connect or disconnect using the selected transport."""
+        """Connect or disconnect using the selected transport (or stop waiting
+        for a lost link to come back)."""
         mw = self._mw
+        if mw._active_conn.reconnecting:
+            self.stop_reconnect(mw._active_conn)
+            return
         if mw._reader.isRunning():
             mw._reader.disconnect_port()
             return
@@ -78,6 +93,9 @@ class SerialController(QObject):
         kind = mw._transport_combo.currentText()
         reader = self._reader_for(kind)
 
+        baud = self.baud()
+        if baud is None:
+            return
         data_str = mw._data_combo.currentText()   # e.g. "8N1"
         bytesize, parity, stopbits = int(data_str[0]), data_str[1], int(data_str[2])
 
@@ -88,7 +106,7 @@ class SerialController(QObject):
                         _win.C_ERR)
                 return
             mw._net_url = url
-            reader.configure(url=url, baud=int(mw._baud_combo.currentText()),
+            reader.configure(url=url, baud=baud,
                              bytesize=bytesize, parity=parity, stopbits=stopbits,
                              flow=mw._flow_combo.currentText())
         elif kind == "SSH":
@@ -111,19 +129,44 @@ class SerialController(QObject):
                              command=p.get("command", "cat /dev/ttyUSB0"))
         else:  # Serial
             reader.configure(port=mw._port_combo.currentText(),
-                             baud=int(mw._baud_combo.currentText()),
+                             baud=baud,
                              bytesize=bytesize, parity=parity, stopbits=stopbits,
                              flow=mw._flow_combo.currentText())
 
         mw._active_conn.reader = reader
+        reader.dtr = mw._chk_dtr.isChecked()
+        reader.rts = mw._chk_rts.isChecked()
         err = reader.connect_port()
         if err:
+            if kind == "Serial" and baud not in STANDARD_BAUDS and "ioctl" in err.lower():
+                err += f" — this port/driver doesn't accept the custom rate {baud}"
             mw._log("ERR", f"Connection failed: {err}", _win.C_ERR)
+
+    def baud(self) -> int | None:
+        """The baud box as a number (any rate the driver accepts — 74880,
+        250000, 1000000 … — CMP3), or ``None`` after logging why not."""
+        mw = self._mw
+        text = mw._baud_combo.currentText().strip().replace(" ", "").replace("_", "")
+        try:
+            baud = int(text)
+        except ValueError:
+            baud = 0
+        if baud <= 0:
+            mw._log("ERR", f"Invalid baud rate: {mw._baud_combo.currentText()!r}", _win.C_ERR)
+            return None
+        return baud
 
     def on_connected(self, conn, port: str, baud: int) -> None:
         mw = self._mw
         label = f"{port} · {baud}" if baud else port
-        mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
+        if conn.reconnecting:
+            tries = conn.reconnect_tries
+            conn.reconnecting = False
+            mw._log("SYS", f"Reconnected: {label}  (after {tries} s)", _win.C_OK, conn=conn)
+        else:
+            mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
+        if isinstance(conn.reader, SerialReader):
+            conn.usb_id = SerialReader.usb_id(port) or conn.usb_id
         conn.failed = False
         conn.session_sec = 0
         conn.name = port                       # tab reflects what it's attached to
@@ -137,6 +180,13 @@ class SerialController(QObject):
 
     def on_disconnected(self, conn) -> None:
         mw = self._mw
+        if conn.reconnecting:
+            # A failed network/SSH retry — stay quiet, the tick tries again.
+            mw._update_conn_tab(conn)
+            return
+        if conn.reader.lost and mw._chk_reconnect.isChecked():
+            self.start_reconnect(conn)
+            return
         mw._log("SYS", "Disconnected.", _win.C_SYS, conn=conn)
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
@@ -148,12 +198,128 @@ class SerialController(QObject):
     def on_serial_error(self, conn, msg: str) -> None:
         # Any transport error marks the connection failed (refused / link lost)
         # until it next connects; a clean user disconnect leaves it idle.
+        if conn.reconnecting:
+            return       # retries are expected to fail until the device is back
         conn.errors += 1
         conn.failed = True
         self._mw._log("ERR", msg, _win.C_ERR, conn=conn)
         self._mw._update_conn_tab(conn)
         if conn is self._mw._active_conn:
             self._mw._refresh_conn_state()
+
+    # ── Auto-reconnect (CMP1) ──────────────────────────────────────────────────
+
+    def _target(self, conn) -> str:
+        r = conn.reader
+        return getattr(r, "_port", "") if isinstance(r, SerialReader) else conn.name
+
+    def start_reconnect(self, conn) -> None:
+        """The link dropped: keep the connection's settings and retry every
+        second until the device is back (re-plugged, rebooted, host up)."""
+        mw = self._mw
+        conn.reconnecting = True
+        conn.reconnect_tries = 0
+        mw._log("SYS", f"Link lost — waiting for {self._target(conn)} to come back "
+                       f"(auto-reconnect; click Stop to give up)…", _win.C_SYS, conn=conn)
+        self._reconnect_timer.start()
+        mw._update_conn_tab(conn)
+        if conn is mw._active_conn:
+            mw._refresh_conn_state()
+
+    def stop_reconnect(self, conn, quiet: bool = False) -> None:
+        mw = self._mw
+        if not conn.reconnecting:
+            return
+        conn.reconnecting = False
+        if conn.reader.isRunning():          # a network/SSH attempt in flight
+            conn.reader.disconnect_port()
+        if not quiet:
+            mw._log("SYS", "Auto-reconnect stopped.", _win.C_SYS, conn=conn)
+        mw._update_conn_tab(conn)
+        if conn is mw._active_conn:
+            mw._refresh_conn_state()
+
+    def _reconnect_tick(self) -> None:
+        waiting = [c for c in self._mw._connections if c.reconnecting]
+        if not waiting:
+            self._reconnect_timer.stop()
+            return
+        for conn in waiting:
+            conn.reconnect_tries += 1
+            r = conn.reader
+            if r.isRunning():                # attempt still in progress
+                continue
+            if isinstance(r, SerialReader):
+                port = SerialReader.find_port(r._port, conn.usb_id)
+                if port is None:
+                    continue                 # not plugged in yet
+                if port != r._port:
+                    self._mw._log("SYS", f"{r._port} came back as {port}",
+                                  _win.C_SYS, conn=conn)
+                    r._port = port
+                # A freshly enumerated port can refuse the first open (busy /
+                # permission settling) — just try again next tick.
+                r.connect_port()
+            elif conn.reconnect_tries % 3 == 0:  # network / SSH: every 3 s
+                r.connect_port()
+        if self._mw._active_conn.reconnecting:
+            self._mw._refresh_conn_state()      # status-bar "waiting … N s"
+
+    # ── DTR / RTS / BREAK and reset sequences (CMP2) ───────────────────────────
+
+    #: (DTR, RTS, hold ms) steps; None leaves a line as it is. The ESP sequences
+    #: are esptool's classic ones for the usual two-transistor auto-reset
+    #: circuit (RTS → EN, DTR → GPIO0).
+    RESET_SEQUENCES = {
+        "dtr":     [(False, None, 100), (True, None, 0)],             # Arduino-style
+        "esp":     [(False, True, 100), (False, False, 0)],           # EN pulse
+        "esp_boot": [(False, True, 100), (True, False, 50), (False, False, 0)],
+    }
+
+    def set_line(self, name: str, on: bool) -> None:
+        """DTR / RTS checkbox toggled — apply now if connected."""
+        mw = self._mw
+        err = mw._reader.set_lines(**{name: on})
+        if err:
+            mw._log("ERR", err, _win.C_ERR)
+
+    def send_break(self, ms: int = 250) -> None:
+        mw = self._mw
+        reader = mw._reader
+        err = reader.set_break(True)
+        if err:
+            mw._log("ERR", err, _win.C_ERR)
+            return
+        QTimer.singleShot(ms, lambda: reader.set_break(False))
+        mw._log("SYS", f"BREAK sent ({ms} ms)", _win.C_SYS)
+
+    def reset_board(self, kind: str = "esp") -> None:
+        """Pulse DTR/RTS to reset the board (or enter the ESP ROM bootloader),
+        then restore the lines to the DTR/RTS checkboxes."""
+        mw = self._mw
+        reader = mw._reader
+        if not reader.isRunning():
+            mw._log("ERR", "Not connected", _win.C_ERR)
+            return
+        steps = list(self.RESET_SEQUENCES[kind])
+        restore = (mw._chk_dtr.isChecked(), mw._chk_rts.isChecked())
+        label = {"dtr": "Reset (DTR pulse)", "esp": "Reset (EN via RTS)",
+                 "esp_boot": "Enter bootloader"}[kind]
+
+        def step():
+            if not steps:
+                reader.set_lines(dtr=restore[0], rts=restore[1])
+                return
+            dtr, rts, hold = steps.pop(0)
+            err = reader.set_lines(dtr=dtr, rts=rts)
+            if err:
+                mw._log("ERR", err, _win.C_ERR)
+                reader.dtr, reader.rts = restore
+                return
+            QTimer.singleShot(hold, step)
+
+        mw._log("SYS", f"{label} …", _win.C_SYS)
+        step()
 
     # ── SSH saved sessions ─────────────────────────────────────────────────────
 
@@ -362,9 +528,7 @@ class SerialController(QObject):
         self._cmd_history.append(text)
         self._hist_idx = len(self._cmd_history)
 
-        eol_map = {"\\r\\n": b"\r\n", "\\n": b"\n", "\\r": b"\r", "None": b""}
-        eol = eol_map.get(mw._eol_combo.currentText(), b"\r\n")
-        data = text.encode() + eol
+        data = text.encode() + self.eol()
 
         err = mw._reader.send(data)
         if err:
@@ -376,6 +540,11 @@ class SerialController(QObject):
             mw._session.feed_line(text, "tx")
 
         mw._cmd_edit.clear()
+
+    def eol(self) -> bytes:
+        """The line ending selected in the command bar."""
+        return {"\\r\\n": b"\r\n", "\\n": b"\n", "\\r": b"\r", "None": b""}.get(
+            self._mw._eol_combo.currentText(), b"\r\n")
 
     def send_custom(self) -> None:
         text = self._mw._custom_cmd.toPlainText().strip()
@@ -390,18 +559,24 @@ class SerialController(QObject):
     # ── Ports ───────────────────────────────────────────────────────────────────
 
     def refresh_ports(self) -> None:
-        """Rescan available COM/tty ports and repopulate the port combo-box."""
+        """Rescan available COM/tty ports and repopulate the port combo-box
+        (each entry labelled with the OS's description of the port — CMP4)."""
+        from ui.port_list import fill
         mw = self._mw
-        ports = SerialReader.list_ports()
+        infos = SerialReader.port_info()
+        ports = [p["device"] for p in infos]
         current = mw._port_combo.currentText()
-        mw._port_combo.clear()
-        mw._port_combo.addItems(ports or ["No ports found"])
+        fill(mw._port_combo, infos, "No ports found")
+        view = mw._port_combo.view()
+        view.setMinimumWidth(min(view.sizeHintForColumn(0) + 24, 640))
         # Priority: currently selected → restored from config → first available
         restore = getattr(mw, "_restore_port", "")
         prefer = restore if restore in ports else (current if current in ports else "")
         if prefer:
             mw._port_combo.setCurrentText(prefer)
-        mw._log("SYS", f"Ports: {', '.join(ports) if ports else 'none found'}", _win.C_DIM)
+        named = [f"{p['device']} ({p['description']})" if p["description"] else p["device"]
+                 for p in infos]
+        mw._log("SYS", f"Ports: {', '.join(named) if named else 'none found'}", _win.C_DIM)
 
     # ── Command history (↑/↓ on the command field) ───────────────────────────────
 

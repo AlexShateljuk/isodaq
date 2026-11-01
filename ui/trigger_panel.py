@@ -57,7 +57,9 @@ class _TrigRow(QWidget):
         type_lbl.setStyleSheet("font-family:'JetBrains Mono';font-size:9px;color:#3e4460;")
         lay.addWidget(type_lbl)
 
-        self._name = QLabel(self.trigger.name)
+        self._name = QLabel(self.trigger.name + ("  ↩" if self.trigger.reply else ""))
+        if self.trigger.reply:
+            self._name.setToolTip(f"Replies: {self.trigger.reply}")
         self._name.setStyleSheet("color:#dde1ec;")
         self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         lay.addWidget(self._name)
@@ -180,6 +182,21 @@ class TriggerPanel(QWidget):
         r2b.addStretch()
         el.addLayout(r2b)
 
+        # Auto-response (CMP7)
+        r_rep = QHBoxLayout(); r_rep.setSpacing(5)
+        rep_lbl = QLabel("Reply")
+        rep_lbl.setObjectName("dimLabel")
+        rep_lbl.setFixedWidth(46)
+        r_rep.addWidget(rep_lbl)
+        self._reply = QLineEdit()
+        self._reply.setPlaceholderText("send back to the device, e.g.  root   ·   ACK \\1")
+        self._reply.setToolTip(
+            "Sent to the device every time this trigger fires, followed by the\n"
+            "command bar's line ending. Regex triggers: \\1 … \\9 or \\g<name>\n"
+            "insert captured groups. Escapes: \\r \\n \\t \\0 \\xHH \\\\")
+        r_rep.addWidget(self._reply)
+        el.addLayout(r_rep)
+
         self._hint = QLabel(""); self._hint.setObjectName("hint"); self._hint.setWordWrap(True)
         el.addWidget(self._hint)
 
@@ -246,9 +263,10 @@ class TriggerPanel(QWidget):
             self._a_resume.setChecked(t.action_resume)
             self._notify_url.setText(t.notify_url)
             self._notify_tg.setText(t.notify_tg_chat)
+            self._reply.setText(t.reply)
         else:
             self._pat.clear(); self._name_e.clear()
-            self._notify_url.clear(); self._notify_tg.clear()
+            self._notify_url.clear(); self._notify_tg.clear(); self._reply.clear()
         self._editor.show(); self._pat.setFocus()
 
     def _close_editor(self):
@@ -274,6 +292,7 @@ class TriggerPanel(QWidget):
             action_resume=self._a_resume.isChecked(),
             notify_url=self._notify_url.text().strip(),
             notify_tg_chat=self._notify_tg.text().strip(),
+            reply=self._reply.text(),
         )
         if self._editing:
             idx = self._rows.index(self._editing)
@@ -303,7 +322,9 @@ class TriggerPanel(QWidget):
     # ── List ──────────────────────────────────────────────────────────────────
     def _rebuild(self):
         for r in self._rows:
-            self._list_lay.removeWidget(r); r.deleteLater()
+            # setParent(None) first: deleteLater alone leaves the old row
+            # painted under the new ones until the event loop runs.
+            self._list_lay.removeWidget(r); r.setParent(None); r.deleteLater()
         self._rows.clear()
         for t in self.engine.get_triggers():
             row = _TrigRow(t)

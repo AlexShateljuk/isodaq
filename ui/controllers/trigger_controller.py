@@ -84,12 +84,40 @@ class TriggerController(QObject):
             mw._repolish(conn.logger_panel._btn)
             mw._log("SYS", f"[TRIGGER:{trigger.name}] Log resumed.", _win.C_OK, conn=conn)
 
+        # ── Reply: auto-response to the device (CMP7) ─────────────────────────
+        if trigger.reply:
+            self._send_reply(conn, trigger, line)
+
         conn.trigger.refresh_hits()
         conn.analytics.record_hit(trigger.name)
 
         # Always log to the connection's trigger events panel (F2 double-click)
         conn.events.add_event(ts, trigger.name, line,
                               dict(conn.last_parsed), line_id)
+
+    def _send_reply(self, conn, trigger: Trigger, line: str) -> None:
+        """Send *trigger*'s reply on *conn* with the command bar's line ending."""
+        mw = self._mw
+        if not conn.reader.isRunning():
+            return
+        if not trigger.reply_due():
+            conn.replies_dropped += 1
+            if conn.replies_dropped in (1, 100, 1000):
+                mw._log("SYS", f"[TRIGGER:{trigger.name}] reply skipped — it fired again "
+                               f"within {int(Trigger.REPLY_MIN_INTERVAL * 1000)} ms "
+                               f"(a device echoing the reply would loop forever)",
+                        _win.C_SYS, conn=conn)
+            return
+        data = trigger.render_reply(line) + mw._serial.eol()
+        err = conn.reader.send(data)
+        if err:
+            mw._log("ERR", f"[TRIGGER:{trigger.name}] reply failed: {err}", _win.C_ERR, conn=conn)
+            return
+        conn.tx_bytes += len(data)
+        if conn is mw._active_conn:
+            mw._sb_tx.setText(f"TX: {mw._fmt_bytes(conn.tx_bytes)}")
+        shown = data.rstrip(b"\r\n").decode("utf-8", errors="replace")
+        mw._log("TX", f"↩ {shown}   [{trigger.name}]", _win.C_TX, conn=conn)
 
     def sync_analytics(self, conn=None) -> None:
         conn = conn or self._mw._active_conn
