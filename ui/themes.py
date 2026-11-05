@@ -337,6 +337,14 @@ QScrollBar::handle:horizontal {{
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
 QScrollArea {{ border: none; background: transparent; }}
+QSlider::groove:horizontal {{
+    height: 4px; border-radius: 2px; background: {c['bg4']};
+}}
+QSlider::sub-page:horizontal {{ border-radius: 2px; background: {c['accent']}; }}
+QSlider::handle:horizontal {{
+    width: 14px; height: 14px; margin: -5px 0; border-radius: 7px;
+    background: {c['accent']};
+}}
 
 /* ── ComboBox ───────────────────────────────────────────── */
 QComboBox {{
@@ -369,6 +377,7 @@ QComboBox QAbstractItemView {{
     border-radius: 4px;
     color: {c['fg']};
     selection-background-color: {c['bg4']};
+    selection-color: {c['fg']};
     outline: none; padding: 2px;
 }}
 
@@ -383,13 +392,13 @@ QLineEdit:focus {{ border-color: {c['accent']}; }}
 QLineEdit:hover {{ border-color: {c['border2']}; }}
 
 /* ── SpinBox ────────────────────────────────────────────── */
-QSpinBox {{
+QSpinBox, QDoubleSpinBox {{
     background: {c['bg3']}; border: 1px solid {c['border']};
     border-radius: 5px; padding: 3px 8px;
     color: {c['fg']}; font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
     font-size: 11px; min-height: 24px;
 }}
-QSpinBox:focus {{ border-color: {c['accent']}; }}
+QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {c['accent']}; }}
 QSpinBox::up-button, QSpinBox::down-button {{
     width: 16px; border: none; background: {c['bg4']}; border-radius: 2px;
 }}

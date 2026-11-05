@@ -101,6 +101,7 @@ class SessionController(QObject):
         self._share_dialog = dlg
 
         form = QFormLayout(dlg)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setContentsMargins(16, 16, 16, 16)
         form.setSpacing(10)
 
@@ -264,6 +265,7 @@ class SessionController(QObject):
         # ── Tab 1: Join by code (internet) ────────────────────────────────
         code_w = QWidget()
         code_form = QFormLayout(code_w)
+        code_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         code_form.setContentsMargins(12, 12, 12, 0)
         code_form.setSpacing(10)
 
@@ -282,6 +284,7 @@ class SessionController(QObject):
         # ── Tab 2: Join by address (LAN) ───────────────────────────────────
         addr_w = QWidget()
         addr_form = QFormLayout(addr_w)
+        addr_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         addr_form.setContentsMargins(12, 12, 12, 0)
         addr_form.setSpacing(10)
 

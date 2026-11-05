@@ -46,7 +46,15 @@ yourself — but be aware it is real code with full runtime access.
 enable its Python rules, exactly as you would never `python somebody_elses.py`
 without reading it.
 
-### 3. Session sharing
+### 3. The Flash command runs in your shell
+
+The Flash tool window (`core/flash_runner.py`) passes the command you typed to
+your login shell, with your privileges, when you press **Build & flash** or F5.
+It is stored in your own `config.json`; only trust a `config.json` from someone
+else as far as you would trust a script from them. Nothing received from a
+device or a shared session can start it or change it: viewers are read-only.
+
+### 4. Session sharing
 
 The public relay (`relay/server.py`, hosted on Railway) is an **unauthenticated,
 best-effort** convenience:

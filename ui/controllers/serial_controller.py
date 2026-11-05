@@ -83,6 +83,9 @@ class SerialController(QObject):
         """Connect or disconnect using the selected transport (or stop waiting
         for a lost link to come back)."""
         mw = self._mw
+        if mw._active_conn.flash_runner is not None:
+            mw._log("SYS", "Flashing — the port is in use until it finishes.", _win.C_SYS)
+            return
         if mw._active_conn.reconnecting:
             self.stop_reconnect(mw._active_conn)
             return
@@ -225,6 +228,14 @@ class SerialController(QObject):
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
             mw._refresh_conn_state()
+
+    def resume(self, conn) -> None:
+        """Reconnect after a flash, through the same retry loop as a lost link:
+        a USB board often re-enumerates, so its port takes a moment to return."""
+        conn.reconnecting = True
+        conn.reconnect_tries = 0
+        self._reconnect_timer.start()
+        self._reconnect_tick()
 
     def stop_reconnect(self, conn, quiet: bool = False) -> None:
         mw = self._mw
@@ -393,6 +404,7 @@ class SerialController(QObject):
         dlg.setModal(True)
 
         form = QFormLayout(dlg)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setContentsMargins(16, 16, 16, 12)
         form.setSpacing(10)
 
@@ -540,6 +552,22 @@ class SerialController(QObject):
             mw._session.feed_line(text, "tx")
 
         mw._cmd_edit.clear()
+
+    def send_bytes(self, data: bytes, shown: str, line_ending: bool = True) -> bool:
+        """Send *data* on the active connection, logged and counted like a typed
+        command. Returns whether it went out."""
+        mw = self._mw
+        if line_ending:
+            data += self.eol()
+        err = mw._reader.send(data)
+        if err:
+            mw._log("ERR", err, _win.C_ERR)
+            return False
+        mw._tx_bytes += len(data)
+        mw._sb_tx.setText(f"TX: {mw._fmt_bytes(mw._tx_bytes)}")
+        mw._log("TX", shown, _win.C_TX)
+        mw._session.feed_line(shown, "tx")
+        return True
 
     def eol(self) -> bytes:
         """The line ending selected in the command bar."""

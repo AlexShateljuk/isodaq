@@ -113,6 +113,11 @@ class SettingsManager(QObject):
             mw._parser.set_snippet(data["snippet"])
             mw._parse_panel.load_snippet(data["snippet"])
 
+        mw._active_conn.flash_panel.set_config(str(data.get("flash_command", "")),
+                                               str(data.get("flash_cwd", "")))
+
+        mw._control_panel.from_dict_list(data.get("controls", []))
+
         if "macros" in data:
             # _macro_panel is built during _build_ui which runs before load()
             mw._macro_panel.from_dict_list(data["macros"])
@@ -178,8 +183,11 @@ class SettingsManager(QObject):
                 "theme":      mw._current_theme,
                 "colorizer":  list(mw._log_colorizer_enabled),
                 "channels":   mw._parser.to_dict_list(),
+                "flash_command": mw._active_conn.flash_panel.command(),
+                "flash_cwd":     mw._active_conn.flash_panel.cwd(),
                 "snippet":    mw._parser.get_snippet(),
                 "macros":     mw._macro_panel.to_dict_list(),
+                "controls":   mw._control_panel.to_dict_list(),
                 "sections":   {k: v.collapsed for k, v in mw._sidebar_sections.items()},
                 "indicator_thresholds": mw._indicator_panel.get_thresholds(),
                 "mode":          mw._mode,
@@ -201,10 +209,11 @@ class SettingsManager(QObject):
         dlg = QDialog(mw)
         tint_titlebar(dlg)
         dlg.setWindowTitle(i18n.tr("Preferences"))
-        dlg.setMinimumWidth(380)
+        dlg.setMinimumWidth(620)              # room for the whole signaling URL
         dlg.setModal(True)
 
         form = QFormLayout(dlg)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setContentsMargins(16, 16, 16, 12)
         form.setSpacing(10)
 

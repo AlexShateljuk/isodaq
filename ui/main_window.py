@@ -29,7 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
-from PyQt6.QtGui import QColor, QFont, QIntValidator, QTextCharFormat, QTextCursor, QAction
+from PyQt6.QtGui import QAction, QColor, QFont, QIntValidator, QKeySequence, QShortcut, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -75,6 +75,10 @@ from ui.controllers.search_controller import SearchController
 from ui.controllers.settings_manager import SettingsManager
 from ui.controllers.serial_controller import SerialController
 from ui.controllers.trigger_controller import TriggerController
+from ui.controllers.flash_controller import FlashController
+from ui.flash_panel import FlashPanel
+from ui.control_panel import ControlPanel
+from core.controls import FREE_KEYS
 
 # ── Colours (updated when theme changes) ──────────────────────────────────────
 C_RX  = QColor("#3ecf8e")
@@ -220,6 +224,7 @@ class MainWindow(QMainWindow):
         self._serial = SerialController(self)
         # Trigger match/actions + analytics sync + save/load (OSS6).
         self._triggers = TriggerController(self)
+        self._flash = FlashController(self)
 
         self._build_ui()
         self._connect_signals()
@@ -422,6 +427,8 @@ class MainWindow(QMainWindow):
 
         device_m = mb.addMenu(tr("Device"))
         device_m.addAction(QAction(tr("Refresh ports"), self, triggered=self._serial.refresh_ports))
+        device_m.addAction(QAction(tr("Build && flash"), self, shortcut="F5",
+                                   triggered=lambda: self._flash.run()))
 
         view_m = mb.addMenu(tr("View"))
         view_m.addAction(QAction(tr("Command Palette…"), self, shortcut="Ctrl+Shift+P",
@@ -556,7 +563,7 @@ class MainWindow(QMainWindow):
     def _conn_state_color(conn) -> QColor:
         """Connected → the connection's tint; waiting to reconnect → amber;
         failed / link lost → error red; idle → dim."""
-        if conn.reconnecting:
+        if conn.reconnecting or conn.flash_runner is not None:
             return C_SYS
         if conn.reader.isRunning():
             return conn.color
@@ -587,6 +594,7 @@ class MainWindow(QMainWindow):
         if conn is None:
             return
         index = self._conn_tab_index(cid)
+        self._flash.shutdown(conn)
         self._serial.stop_reconnect(conn, quiet=True)
         for r in conn.readers.values():
             if r.isRunning():
@@ -603,6 +611,7 @@ class MainWindow(QMainWindow):
                              (self._indicator_stack, conn.indicator),
                              (self._trigger_stack, conn.trigger),
                              (self._logger_stack, conn.logger_panel),
+                             (self._flash_stack, conn.flash_panel),
                              (self._events_stack, conn.events),
                              (self._analytics_stack, conn.analytics)):
             stack.removeWidget(panel)
@@ -628,6 +637,7 @@ class MainWindow(QMainWindow):
         self._chart_stack.setCurrentWidget(conn.chart)
         self._indicator_stack.setCurrentWidget(conn.indicator)
         self._parse_stack.setCurrentWidget(conn.parse)
+        self._flash_stack.setCurrentWidget(conn.flash_panel)
         self._trigger_stack.setCurrentWidget(conn.trigger)
         self._logger_stack.setCurrentWidget(conn.logger_panel)
         self._events_stack.setCurrentWidget(conn.events)
@@ -667,7 +677,11 @@ class MainWindow(QMainWindow):
                                else tr("Disconnect") if running else tr("Connect"))
         self._conn_btn.setObjectName("disconnectBtn" if busy else "connectBtn")
         self._repolish(self._conn_btn)
-        if conn.reconnecting:
+        self._conn_btn.setEnabled(conn.flash_runner is None)   # the tool has the port
+        if conn.flash_runner is not None:
+            self._sb_conn.setText("● " + tr("Flashing…"))
+            self._sb_conn.setStyleSheet(f"color:{C_SYS.name()}")
+        elif conn.reconnecting:
             self._sb_conn.setText("● " + tr("Reconnecting… {s} s").format(s=conn.reconnect_tries))
             self._sb_conn.setStyleSheet(f"color:{C_SYS.name()}")
         elif running:
@@ -1052,10 +1066,12 @@ class MainWindow(QMainWindow):
         ("custom",    "left",   "Custom command"),
         ("graphs",    "right",  "Graphs"),
         ("indicators", "right", "Indicators"),
+        ("controls",  "right",  "Controls"),
         ("events",    "bottom", "Events"),
         ("analytics", "bottom", "Analytics"),
         ("triggers",  "bottom", "Triggers"),
         ("logger",    "bottom", "Data Logger"),
+        ("flash",     "bottom", "Flash"),
     )
 
     def _populate_tool_windows(self) -> None:
@@ -1069,8 +1085,13 @@ class MainWindow(QMainWindow):
         self._trigger_stack   = QStackedWidget()
         self._logger_stack    = QStackedWidget()
         self._parse_stack     = QStackedWidget()
+        self._flash_stack     = QStackedWidget()
 
         self._macro_panel = MacroPanel(self._macro_runner)
+        self._control_panel = ControlPanel(self._serial.send_bytes)
+        for key in FREE_KEYS:
+            QShortcut(QKeySequence(key), self,
+                      activated=lambda k=key: self._control_panel.fire_key(k))
         self._devices_panel = self._build_devices_panel()
 
         content = {
@@ -1078,8 +1099,10 @@ class MainWindow(QMainWindow):
             "parsing":    self._parse_stack,
             "macros":     self._macro_panel,
             "custom":     self._build_custom_cmd(),
+            "flash":      self._flash_stack,
             "graphs":     self._chart_stack,
             "indicators": self._indicator_stack,
+            "controls":   self._control_panel,
             "events":     self._events_stack,
             "analytics":  self._analytics_stack,
             "triggers":   self._trigger_stack,
@@ -1156,6 +1179,14 @@ class MainWindow(QMainWindow):
                      lambda: self._macro_panel._send_file_direct(), 22, "iconAct"),
                 _btn(tr("+ Add"), tr("New macro"),
                      lambda: self._macro_panel._new_macro()),
+            ],
+            "controls": [
+                _btn(tr("Import"), tr("Add controls from a file"),
+                     lambda: self._control_panel.import_file(), None, "iconAct"),
+                _btn(tr("Export"), tr("Save the controls to a file"),
+                     lambda: self._control_panel.export_file(), None, "iconAct"),
+                _btn(tr("+ Add"), tr("New button, toggle, slider or number box"),
+                     lambda: self._control_panel.add()),
             ],
             "parsing": [
                 _btn(tr("+ Add"), tr("Add a channel"),
@@ -1241,7 +1272,8 @@ class MainWindow(QMainWindow):
             fg = self._conn_state_color(conn)
             if fg == C_DIM and active:
                 fg = C_FG
-            mark = ("↻" if conn.reconnecting else "●" if running
+            mark = ("⚡" if conn.flash_runner is not None
+                    else "↻" if conn.reconnecting else "●" if running
                     else "✕" if conn.failed else "○")
             row.setText(f"{mark}  {conn.short_name}")
             row.setToolTip(conn.name)
@@ -1273,6 +1305,9 @@ class MainWindow(QMainWindow):
         conn.parse.channel_indicator_req.connect(
             lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
         conn.chart.keep_requested.connect(conn.parse.keep_channel)
+        conn.flash_panel = FlashPanel()
+        self._flash_stack.addWidget(conn.flash_panel)
+        self._flash.wire_panel(conn)
         conn.events.jump_to_line.connect(self._search.jump_to_line)
         conn.events.set_embedded(True)       # dock header already titles it
         conn.events.count_changed.connect(
@@ -1364,6 +1399,8 @@ class MainWindow(QMainWindow):
                 cmds.append(Command(conn.short_name, tr("Switch to"),
                                     lambda c=conn: self._conn_bar.setCurrentIndex(
                                         self._conn_tab_index(c.id))))
+        for label, run in self._control_panel.run_commands():
+            cmds.append(Command(label, tr("Controls"), run))
         for key, _edge, title in self.TOOLS:
             cmds.append(Command(tr(title), tr("Show tool window"),
                                 lambda k=key: self._show_tool(k)))
@@ -1803,7 +1840,7 @@ class MainWindow(QMainWindow):
             if text_color is not None:
                 txt_fmt = fmt(text_color)
             else:
-                txt_fmt = fg_fmt if direction in ("RX", "SYS") else fmt(color)
+                txt_fmt = fg_fmt if direction in ("RX", "SYS", "BLD") else fmt(color)
             cursor.insertText(text, txt_fmt)
             # Tag this line's block with its stable id so events can jump to it (F2)
             cursor.block().setUserState(seq)
@@ -1909,6 +1946,7 @@ class MainWindow(QMainWindow):
         # ("QThread: Destroyed while thread is still running").
         self._settings.save()
         for conn in self._connections:
+            self._flash.shutdown(conn)
             conn.reconnecting = False
             for r in conn.readers.values():
                 if r.isRunning():

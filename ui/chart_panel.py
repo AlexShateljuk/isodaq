@@ -74,10 +74,7 @@ class ChartPanel(QWidget):
             "12.5, 40, -3     temp:21.5 hum:40     >temp:21.5 (Teleplot)\n\n"
             "or add a channel in the Parsing panel")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet(
-            "color: rgba(255,255,255,0.18); font-size: 13px; line-height: 1.8;"
-            "font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;"
-        )
+        self._style_empty_label("#6a6a7a")
         self._empty_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
         from PyQt6.QtWidgets import QStackedLayout
@@ -147,7 +144,14 @@ class ChartPanel(QWidget):
 
         lay.addWidget(self._legend_w)
 
+    def _style_empty_label(self, color: str) -> None:
+        self._empty_label.setStyleSheet(
+            f"color: {color}; font-size: 13px; line-height: 1.8;"
+            "font-family: 'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif;"
+        )
+
     def apply_theme(self, c: dict) -> None:
+        self._style_empty_label(c["fg_dim"])
         self._plot.setBackground(c["bg"])
         for axis in ("bottom", "left"):
             self._pi.getAxis(axis).setPen(pg.mkPen(c["bg4"]))

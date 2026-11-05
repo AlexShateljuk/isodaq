@@ -92,6 +92,11 @@ class Connection(QObject):
         self.usb_id: tuple | None = None
         self.replies_dropped: int = 0   # trigger replies skipped by the loop guard
 
+        # Build & flash (CMP12): the command running now, if any, and whether
+        # to reconnect when it ends. The panel (UI layer) holds the command text.
+        self.flash_runner = None
+        self.resume_after_flash: bool = False
+
     @property
     def short_name(self) -> str:
         """Compact tab label: drop URL schemes and /dev/ (full name in tooltip)."""

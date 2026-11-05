@@ -108,6 +108,38 @@ connections forward the lines; raw `socket://` and SSH can't, and say so.
 Need more than one device? Click **`+`** next to the tabs — see
 [Multiple Connections](Multiple-Connections).
 
+## Build & flash
+
+The **Flash** tool window (bottom edge) runs your build / upload command without
+you having to disconnect first:
+
+1. Pick a preset or type a command, and set the **Project folder**. Each connection
+   has its own.
+
+   | Tool | Command |
+   |------|---------|
+   | PlatformIO | `pio run -t upload --upload-port {port}` |
+   | ESP-IDF | `idf.py -p {port} flash` |
+   | Arduino CLI | `arduino-cli compile --upload -p {port} .` |
+   | esptool | `esptool.py --port {port} write_flash 0x0 firmware.bin` |
+   | ST-Link | `st-flash --reset write firmware.bin 0x08000000` |
+   | Anything else | `make flash` |
+
+   `{port}` and `{baud}` are filled in from the connection.
+2. Press **Build & flash** (or `F5`, or *Build & flash* in the
+   [command palette](Interface-Overview#command-palette)).
+
+The port is released, the output appears in the terminal as `BLD` lines, and
+afterwards the terminal says how it went. If the connection was connected it
+reconnects by itself, waiting for a USB board that re-enumerates; if it wasn't, it
+stays disconnected. **Stop** ends the command and everything it started.
+
+The command runs in your login shell, so tools on your `PATH` work even when the
+app was started from Finder or a desktop launcher. Anything set up only for
+interactive shells has to be part of the command, e.g.
+`. ~/esp/esp-idf/export.sh && idf.py -p {port} flash`. See
+[SECURITY.md](https://github.com/AlexShateljuk/isodaq/blob/master/SECURITY.md).
+
 ## Under the hood — the high-throughput reader
 
 Each connection's reader runs on its own thread and is tuned for sustained high

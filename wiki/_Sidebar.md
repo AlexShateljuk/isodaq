@@ -19,6 +19,7 @@
 **Automation & sharing**
 - [Triggers](Triggers)
 - [Macros](Macros)
+- [Controls](Controls)
 - [Session Sharing](Session-Sharing)
 
 **Configuration**

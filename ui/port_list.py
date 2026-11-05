@@ -58,9 +58,9 @@ class PortDelegate(QStyledItemDelegate):
         painter.save()
         painter.setFont(font)
         fm = painter.fontMetrics()
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        fg = option.palette.color(QPalette.ColorRole.HighlightedText if selected
-                                  else QPalette.ColorRole.Text)
+        # Text, not HighlightedText: the themes' selection is a subtle tint, and
+        # the palette's highlighted colour is near-white, unreadable in Light.
+        fg = option.palette.color(QPalette.ColorRole.Text)
         painter.setPen(fg)
         dev_w = fm.horizontalAdvance(device)
         painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,

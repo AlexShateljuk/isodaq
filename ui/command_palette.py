@@ -187,6 +187,11 @@ class CommandPalette(QFrame):
         return super().eventFilter(obj, event)
 
 
+def _menu_text(text: str) -> str:
+    """A menu label as shown: ``&`` marks a mnemonic, ``&&`` is a literal one."""
+    return text.replace("&&", "\0").replace("&", "").replace("\0", "&")
+
+
 def menu_commands(menubar) -> list[Command]:
     """Every enabled action in the menu bar, as ``Menu › Submenu`` commands."""
     out: list[Command] = []
@@ -196,7 +201,7 @@ def menu_commands(menubar) -> list[Command]:
             if act.isSeparator():
                 continue
             sub = act.menu()
-            label = act.text().replace("&", "").rstrip("…").strip()
+            label = _menu_text(act.text()).rstrip("…").strip()
             if sub is not None:
                 walk(sub, [*path, label])
             elif act.isEnabled() and isinstance(act, QAction):
@@ -206,5 +211,5 @@ def menu_commands(menubar) -> list[Command]:
 
     for act in menubar.actions():
         if act.menu() is not None:
-            walk(act.menu(), [act.text().replace("&", "")])
+            walk(act.menu(), [_menu_text(act.text())])
     return out

@@ -12,10 +12,12 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QColorDialog, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QColorDialog, QDialog, QDialogButtonBox,
     QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QVBoxLayout, QWidget,
 )
+
+from ui.number_box import NumberBox
 
 COLS = 3
 
@@ -32,7 +34,7 @@ class _ThresholdRow(QWidget):
         ge_lbl.setFixedWidth(14)
         lay.addWidget(ge_lbl)
 
-        self._spin = QDoubleSpinBox()
+        self._spin = NumberBox()
         self._spin.setRange(-1e9, 1e9)
         self._spin.setDecimals(3)
         self._spin.setValue(value)

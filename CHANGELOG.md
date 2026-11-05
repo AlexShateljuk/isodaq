@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Controls** — a tool window for your own buttons, toggles, sliders and number
+  boxes that send commands to the active connection (`SET PWM={value}`). Buttons
+  and toggles can have function keys (F1–F3, F6–F12) and appear in the command
+  palette. Byte escapes for binary protocols, per-control line ending, JSON import
+  and export. Stored positions are never sent by themselves.
+- **Build & flash, then resume** — a **Flash** tool window holds a per-connection
+  command (presets for PlatformIO, ESP-IDF, arduino-cli, esptool, st-flash and
+  make; `{port}` and `{baud}` are filled in). **Build & flash** (or `F5`) releases
+  the port, runs the command with its output in that connection's terminal, then
+  reconnects if it was connected. **Stop** ends the whole process tree, so nothing
+  keeps holding the port.
 - **Quick Plot** — lines that are only data are graphed with no setup:
   `12.5, 40, -3` (Arduino Serial Plotter style → `ch1…ch3`), `temp:21.5 hum:40`
   or `temp=21.5, rpm=1500`. The whole line must be data, so ordinary log lines
@@ -45,12 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (freeze the view while data keeps recording; pan/zoom freely) and **Y lock**.
 
 ### Fixed
-- Trigger list rows were briefly painted on top of each other after adding or
-  editing a trigger.
 - A chart channel's legend entry was placed between the PNG and CSV buttons.
 - The font −/+ buttons in the `⋯` popover showed no text.
-- Parsing channel rows could be painted on top of each other after a change.
 - The editable baud box took keyboard focus at startup.
+- The selected row of every drop-down list was nearly unreadable in the Light
+  theme.
+- The Graphs empty-state text was invisible in the Light theme.
+- Indicator thresholds could read as a different number: with a comma locale, 50
+  showed as `50,000`. They now always use a dot, and were unreadable in Light.
+- Fields in Preferences and the SSH dialog were too narrow on macOS, cutting off the
+  signaling URL.
 
 ## [0.4.0] — 2026-11-01
 
