@@ -61,6 +61,9 @@ class FlashController(QObject):
         if conn.flash_runner is not None:
             mw._log("SYS", "Already flashing on this connection.", _win.C_SYS, conn=conn)
             return
+        if conn.transfer is not None:
+            self._refuse(conn, "A file is being sent over this connection: cancel it first.")
+            return
         template = panel.command()
         if not template:
             if conn is mw._active_conn:

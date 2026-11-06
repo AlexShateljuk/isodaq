@@ -76,7 +76,13 @@ from ui.controllers.settings_manager import SettingsManager
 from ui.controllers.serial_controller import SerialController
 from ui.controllers.trigger_controller import TriggerController
 from ui.controllers.flash_controller import FlashController
+from ui.controllers.transfer_controller import TransferController
+from ui.controllers.tcp_share_controller import TcpShareController
+from ui.frame_button import FrameButton
+from ui.number_box import NumberBox
+from core.periodic import PeriodicSender
 from ui.flash_panel import FlashPanel
+from ui.modbus_panel import ModbusPanel
 from ui.control_panel import ControlPanel
 from core.controls import FREE_KEYS
 
@@ -199,6 +205,10 @@ class MainWindow(QMainWindow):
         self._ssh_sessions: list[dict] = []   # saved SSH profiles (name/host/port/user/key/command; no password)
         self._ssh_params: dict = {}           # active profile (+ in-memory password)
         self._net_url: str = ""               # last-used network target (socket://… / rfc2217://…)
+        self._ble_target: str = ""            # last-used Bluetooth device ("Name [address]")
+        self._mqtt_url: str = ""              # last-used broker (mqtt://host/topic/#?tx=…)
+        self._modbus_target: str = ""         # last-used Modbus device (serial port or tcp://…)
+        self._target_kind: str = "Serial"     # transport the target field is showing
         self._port_options_menu = None        # built lazily by _open_port_options
         self._float_wins: list[_FloatWindow] = []
         self._terminal_font_size: int = 11
@@ -225,6 +235,8 @@ class MainWindow(QMainWindow):
         # Trigger match/actions + analytics sync + save/load (OSS6).
         self._triggers = TriggerController(self)
         self._flash = FlashController(self)
+        self._transfer = TransferController(self)
+        self._tcp_share = TcpShareController(self)
 
         self._build_ui()
         self._connect_signals()
@@ -353,7 +365,10 @@ class MainWindow(QMainWindow):
         """Assembles the full window: stylesheet, menu, left/right splitter, statusbar."""
         install_font_fallbacks()   # before any widget resolves a font
         install_layout_fixes()     # before any check box is laid out
-        QApplication.instance().setStyleSheet(build_stylesheet(self._current_theme))
+        # Only if it differs: applying a style sheet restyles every widget that exists.
+        app, css = QApplication.instance(), build_stylesheet(self._current_theme)
+        if app.styleSheet() != css:
+            app.setStyleSheet(css)
         self._build_menu()
 
         central = QWidget()
@@ -429,6 +444,10 @@ class MainWindow(QMainWindow):
         device_m.addAction(QAction(tr("Refresh ports"), self, triggered=self._serial.refresh_ports))
         device_m.addAction(QAction(tr("Build && flash"), self, shortcut="F5",
                                    triggered=lambda: self._flash.run()))
+        device_m.addAction(QAction(tr("Send file (XMODEM / YMODEM)"), self,
+                                   triggered=lambda: self._show_tool("flash")))
+        device_m.addAction(QAction(tr("Share port over TCP…"), self,
+                                   triggered=lambda: self._tcp_share.open_dialog()))
 
         view_m = mb.addMenu(tr("View"))
         view_m.addAction(QAction(tr("Command Palette…"), self, shortcut="Ctrl+Shift+P",
@@ -595,6 +614,11 @@ class MainWindow(QMainWindow):
             return
         index = self._conn_tab_index(cid)
         self._flash.shutdown(conn)
+        self._transfer.shutdown(conn)
+        self._serial.set_publishing(conn, False)
+        self._serial.stop_repeat(conn)
+        self._tcp_share.stop(conn)
+        conn.snapshots.flush()
         self._serial.stop_reconnect(conn, quiet=True)
         for r in conn.readers.values():
             if r.isRunning():
@@ -612,6 +636,7 @@ class MainWindow(QMainWindow):
                              (self._trigger_stack, conn.trigger),
                              (self._logger_stack, conn.logger_panel),
                              (self._flash_stack, conn.flash_panel),
+                             (self._modbus_stack, conn.modbus),
                              (self._events_stack, conn.events),
                              (self._analytics_stack, conn.analytics)):
             stack.removeWidget(panel)
@@ -638,6 +663,7 @@ class MainWindow(QMainWindow):
         self._indicator_stack.setCurrentWidget(conn.indicator)
         self._parse_stack.setCurrentWidget(conn.parse)
         self._flash_stack.setCurrentWidget(conn.flash_panel)
+        self._modbus_stack.setCurrentWidget(conn.modbus)
         self._trigger_stack.setCurrentWidget(conn.trigger)
         self._logger_stack.setCurrentWidget(conn.logger_panel)
         self._events_stack.setCurrentWidget(conn.events)
@@ -645,6 +671,8 @@ class MainWindow(QMainWindow):
         self._on_events_count(conn, conn.events.count)
         self._refresh_conn_state()
         self._refresh_devices_panel()
+        self._serial._show_repeat(conn)
+        self._refresh_activity()
 
     def _save_toolbar(self, conn) -> None:
         """Remember the toolbar selection as *conn*'s own (SER3)."""
@@ -677,7 +705,8 @@ class MainWindow(QMainWindow):
                                else tr("Disconnect") if running else tr("Connect"))
         self._conn_btn.setObjectName("disconnectBtn" if busy else "connectBtn")
         self._repolish(self._conn_btn)
-        self._conn_btn.setEnabled(conn.flash_runner is None)   # the tool has the port
+        # A flashing tool or a file transfer has the port.
+        self._conn_btn.setEnabled(conn.flash_runner is None and conn.transfer is None)
         if conn.flash_runner is not None:
             self._sb_conn.setText("● " + tr("Flashing…"))
             self._sb_conn.setStyleSheet(f"color:{C_SYS.name()}")
@@ -739,10 +768,10 @@ class MainWindow(QMainWindow):
         lay.setSpacing(4)
 
         self._transport_combo = QComboBox()
-        self._transport_combo.addItems(["Serial", "Network", "SSH"])
+        self._transport_combo.addItems(["Serial", "Network", "SSH", "BLE", "MQTT", "Modbus"])
         self._transport_combo.setFixedWidth(108)   # fits "Network" in the mono font
         self._transport_combo.setToolTip(
-            tr("Transport: local serial, TCP/RFC2217 network, or SSH"))
+            tr("Transport: local serial, TCP/RFC2217 network, SSH, Bluetooth LE, MQTT or Modbus"))
         lay.addWidget(self._transport_combo)
 
         self._port_combo = QComboBox()
@@ -948,6 +977,10 @@ class MainWindow(QMainWindow):
         line.setObjectName("sep")
         return line
 
+    #: Transports whose target is typed: where the text is kept between switches.
+    _TYPED_TARGETS = {"Network": "_net_url", "BLE": "_ble_target", "MQTT": "_mqtt_url",
+                      "Modbus": "_modbus_target"}
+
     def _on_transport_changed(self, kind: str) -> None:
         """Adapt the target field to the selected transport.
 
@@ -955,9 +988,13 @@ class MainWindow(QMainWindow):
         read-only summary; the credentials are gathered by a dialog on Connect.
         """
         combo = self._port_combo
-        # Remember a typed network URL before we repurpose the field.
-        if combo.isEditable():
-            self._net_url = combo.currentText().strip()
+        # Remember what was typed before we repurpose the field.
+        typed = self._TYPED_TARGETS.get(getattr(self, "_target_kind", ""))
+        if typed:
+            setattr(self, typed, combo.currentText().strip())
+        self._target_kind = kind
+        # Baud means nothing to these.
+        self._baud_combo.setEnabled(kind not in ("BLE", "MQTT", "SSH"))
 
         if kind == "Network":
             combo.setEditable(True)
@@ -967,6 +1004,31 @@ class MainWindow(QMainWindow):
             combo.setEditText(self._net_url)
             self._refresh_btn.setEnabled(False)
             self._refresh_btn.setText("↻")
+        elif kind == "MQTT":
+            combo.setEditable(True)
+            combo.clear()
+            combo.lineEdit().setPlaceholderText(
+                "mqtt://broker.local/sensors/#?tx=commands/device")
+            combo.setEditText(self._mqtt_url)
+            self._refresh_btn.setEnabled(False)
+            self._refresh_btn.setText("↻")
+        elif kind == "Modbus":
+            combo.setEditable(True)
+            combo.clear()
+            combo.lineEdit().setPlaceholderText(tr("Serial port (RTU), or tcp://192.168.1.10:502"))
+            self._serial.populate_modbus_combo(self._modbus_target)
+            self._refresh_btn.setEnabled(True)
+            self._refresh_btn.setText("↻")
+            self._refresh_btn.setToolTip(tr("Rescan serial ports"))
+        elif kind == "BLE":
+            combo.setEditable(True)
+            combo.clear()
+            combo.lineEdit().setPlaceholderText(tr("Press ↻ to scan for Bluetooth devices"))
+            combo.setEditText(self._ble_target)
+            self._serial.populate_ble_combo()
+            self._refresh_btn.setEnabled(True)
+            self._refresh_btn.setText("↻")
+            self._refresh_btn.setToolTip(tr("Scan for Bluetooth devices"))
         elif kind == "SSH":
             combo.setEditable(False)
             self._serial.populate_ssh_combo()
@@ -982,8 +1044,13 @@ class MainWindow(QMainWindow):
 
     def _on_refresh_clicked(self) -> None:
         """⟳ / ✎ button — rescan ports (Serial) or edit the SSH session (SSH)."""
-        if self._transport_combo.currentText() == "SSH":
+        kind = self._transport_combo.currentText()
+        if kind == "SSH":
             self._serial.edit_ssh_session(new=False)
+        elif kind == "BLE":
+            self._serial.scan_ble()
+        elif kind == "Modbus":
+            self._serial.populate_modbus_combo(self._port_combo.currentText().strip())
         else:
             self._serial.refresh_ports()
 
@@ -1047,6 +1114,9 @@ class MainWindow(QMainWindow):
         self._eol_combo.addItems(["\\r\\n","\\n","\\r","None"])
         self._eol_combo.setFixedWidth(66)
         cr.addWidget(self._eol_combo)
+        self._frame_btn = FrameButton()
+        self._frame_btn.changed.connect(self._on_frame_changed)
+        cr.addWidget(self._frame_btn)
         self._send_btn = QPushButton(tr("Send"))
         self._send_btn.setObjectName("sendBtn")
         self._send_btn.setFixedWidth(54)
@@ -1072,6 +1142,7 @@ class MainWindow(QMainWindow):
         ("triggers",  "bottom", "Triggers"),
         ("logger",    "bottom", "Data Logger"),
         ("flash",     "bottom", "Flash"),
+        ("modbus",    "bottom", "Modbus"),
     )
 
     def _populate_tool_windows(self) -> None:
@@ -1086,6 +1157,7 @@ class MainWindow(QMainWindow):
         self._logger_stack    = QStackedWidget()
         self._parse_stack     = QStackedWidget()
         self._flash_stack     = QStackedWidget()
+        self._modbus_stack    = QStackedWidget()
 
         self._macro_panel = MacroPanel(self._macro_runner)
         self._control_panel = ControlPanel(self._serial.send_bytes)
@@ -1100,6 +1172,7 @@ class MainWindow(QMainWindow):
             "macros":     self._macro_panel,
             "custom":     self._build_custom_cmd(),
             "flash":      self._flash_stack,
+            "modbus":     self._modbus_stack,
             "graphs":     self._chart_stack,
             "indicators": self._indicator_stack,
             "controls":   self._control_panel,
@@ -1187,6 +1260,14 @@ class MainWindow(QMainWindow):
                      lambda: self._control_panel.export_file(), None, "iconAct"),
                 _btn(tr("+ Add"), tr("New button, toggle, slider or number box"),
                      lambda: self._control_panel.add()),
+            ],
+            "modbus": [
+                _btn(tr("Import"), tr("Load a register map from a file"),
+                     lambda: self._active_conn.modbus.import_file(), None, "iconAct"),
+                _btn(tr("Export"), tr("Save the register map to a file"),
+                     lambda: self._active_conn.modbus.export_file(), None, "iconAct"),
+                _btn(tr("+ Add"), tr("Add a register"),
+                     lambda: self._active_conn.modbus.add_point()),
             ],
             "parsing": [
                 _btn(tr("+ Add"), tr("Add a channel"),
@@ -1305,9 +1386,15 @@ class MainWindow(QMainWindow):
         conn.parse.channel_indicator_req.connect(
             lambda name, en, c=conn: self._on_channel_indicator_req(c, name, en))
         conn.chart.keep_requested.connect(conn.parse.keep_channel)
+        conn.logger_panel.publish_toggled.connect(
+            lambda on, c=conn: self._serial.set_publishing(c, on))
         conn.flash_panel = FlashPanel()
         self._flash_stack.addWidget(conn.flash_panel)
         self._flash.wire_panel(conn)
+        self._transfer.wire_panel(conn)
+        conn.modbus = ModbusPanel()
+        self._modbus_stack.addWidget(conn.modbus)
+        conn.modbus.changed.connect(lambda c=conn: self._serial.sync_modbus(c))
         conn.events.jump_to_line.connect(self._search.jump_to_line)
         conn.events.set_embedded(True)       # dock header already titles it
         conn.events.count_changed.connect(
@@ -1318,6 +1405,7 @@ class MainWindow(QMainWindow):
         # this connection (events/notifications regardless of which tab is active).
         conn.engine.on_match(
             lambda trig, line, ts, c=conn: self._triggers.on_match_threadsafe(c, trig, line, ts))
+        self._triggers.wire_snapshots(conn)
 
         self._parse_stack.addWidget(conn.parse)
         self._chart_stack.addWidget(conn.chart)
@@ -1344,8 +1432,63 @@ class MainWindow(QMainWindow):
         sb.setFixedHeight(26)
         sb.clicked.connect(self._serial.send_custom)
         lay.addWidget(sb)
+
+        # Repeat it on a timer (CMP8), per connection.
+        row = QHBoxLayout()
+        row.setSpacing(5)
+        self._repeat_ms = NumberBox()
+        self._repeat_ms.setDecimals(0)
+        self._repeat_ms.setRange(PeriodicSender.MIN_INTERVAL_MS, 86_400_000)
+        self._repeat_ms.setValue(1000)
+        self._repeat_ms.setFixedSize(64, 24)
+        self._repeat_count = NumberBox()
+        self._repeat_count.setDecimals(0)
+        self._repeat_count.setRange(0, 1_000_000)
+        self._repeat_count.setSpecialValueText("∞")
+        self._repeat_count.setFixedSize(52, 24)
+        self._repeat_count.setToolTip(tr("How many times to send it. 0 (∞) repeats until stopped."))
+        row.addWidget(self._lbl(tr("Every"), dim=True))
+        row.addWidget(self._repeat_ms)
+        row.addWidget(self._lbl(tr("ms"), dim=True))
+        row.addSpacing(6)
+        row.addWidget(self._lbl(tr("Times"), dim=True))
+        row.addWidget(self._repeat_count)
+        row.addStretch()
+        lay.addSpacing(4)
+        lay.addLayout(row)
+        self._repeat_btn = QPushButton(tr("Repeat"))
+        self._repeat_btn.setObjectName("add")
+        self._repeat_btn.setFixedHeight(26)
+        self._repeat_btn.setToolTip(tr("Send the command above on a timer, on this device only."))
+        self._repeat_btn.clicked.connect(self._serial.toggle_repeat)
+        lay.addWidget(self._repeat_btn)
+        self._repeat_status = QLabel("")
+        self._repeat_status.setObjectName("dimLabel")
+        lay.addWidget(self._repeat_status)
         lay.addStretch()   # keep the form at the top of a tall dock
         return w
+
+    def _on_frame_changed(self) -> None:
+        """A hex frame is binary: it takes no line ending, and is typed differently."""
+        hex_input = self._frame_btn.hex_input
+        self._eol_combo.setEnabled(not hex_input)
+        self._cmd_edit.setPlaceholderText(
+            tr("Hex bytes, e.g. 01 03 00 00 00 02") if hex_input
+            else tr("Command… (↑↓ history)"))
+
+    def _refresh_activity(self) -> None:
+        """The status bar's note of what the active connection is doing by itself:
+        sending on a timer, or open to TCP clients."""
+        conn = self._active_conn
+        parts = []
+        if conn.repeat is not None:
+            parts.append(tr("Repeating every {ms} ms").format(ms=conn.repeat.interval_ms))
+        share = conn.port_share
+        if share is not None:
+            parts.append(tr("TCP :{port} ({n} connected)").format(
+                port=share.port, n=share.client_count))
+        self._sb_activity.setText("  ·  ".join(parts))
+        self._sb_activity.setVisible(bool(parts))
 
     # ── Command palette ───────────────────────────────────────────────────────
 
@@ -1367,6 +1510,7 @@ class MainWindow(QMainWindow):
                     self._serial.toggle_connection),
             Command(tr("New connection"), tr("Connection"), self._add_connection),
             Command(tr("Rescan serial ports"), tr("Connection"), self._serial.refresh_ports),
+            Command(tr("Scan for Bluetooth devices"), tr("Connection"), self._scan_ble_command),
             Command(tr("Reset board (RTS → EN, ESP32/ESP8266)"), tr("Device"),
                     lambda: self._serial.reset_board("esp")),
             Command(tr("Reset board (DTR pulse, Arduino)"), tr("Device"),
@@ -1374,6 +1518,9 @@ class MainWindow(QMainWindow):
             Command(tr("Enter ESP bootloader"), tr("Device"),
                     lambda: self._serial.reset_board("esp_boot")),
             Command(tr("Send BREAK"), tr("Device"), self._serial.send_break),
+            Command(tr("Share port over TCP…"), tr("Device"), self._tcp_share.open_dialog),
+            Command(tr("Repeat custom command (start / stop)"), tr("Device"),
+                    self._serial.toggle_repeat),
             Command(f"DTR  ({on_off(self._chk_dtr)})", tr("Device"), self._chk_dtr.toggle),
             Command(f"RTS  ({on_off(self._chk_rts)})", tr("Device"), self._chk_rts.toggle),
             Command(f"{tr('Auto-reconnect')}  ({on_off(self._chk_reconnect)})", tr("Connection"),
@@ -1406,6 +1553,11 @@ class MainWindow(QMainWindow):
                                 lambda k=key: self._show_tool(k)))
         cmds += menu_commands(self.menuBar())
         return cmds
+
+    def _scan_ble_command(self) -> None:
+        """From the palette: the list being filled has to be on show."""
+        self._transport_combo.setCurrentText("BLE")
+        self._serial.scan_ble()
 
     def _show_tool(self, key: str) -> None:
         """Open a tool window (never closes it, unlike a stripe click)."""
@@ -1441,6 +1593,9 @@ class MainWindow(QMainWindow):
         self._sb_conn.setStyleSheet("color:#ef4444")
         for w in (self._sb_conn, self._sb_rx, self._sb_tx, self._sb_rate, self._sb_err):
             sb.addWidget(w)
+        self._sb_activity = QLabel("")
+        self._sb_activity.hide()
+        sb.addWidget(self._sb_activity)
 
         # Remote session quality indicator — hidden until JOIN is active
         self._sb_ping = QLabel("● — ms")
@@ -1539,6 +1694,7 @@ class MainWindow(QMainWindow):
             conn.rx_bytes += len(line.encode())
             conn.rx_lines += 1
             conn.logger.write_line(line, ts)
+            conn.snapshots.feed(line, ts)
             conn.engine.check(line, ts)
             conn.rx_shed += 1
 
@@ -1566,6 +1722,7 @@ class MainWindow(QMainWindow):
 
         # Check triggers on the source connection's own engine — "fire always"
         # (events + notifications happen regardless of which tab is active).
+        conn.snapshots.feed(line, ts)
         conn.engine.check(line, ts)
 
         # Parse numeric channels → update this connection's own panels (they are
@@ -1576,6 +1733,8 @@ class MainWindow(QMainWindow):
             conn.parse.update_values(parsed)
             conn.chart.update(parsed)
             conn.indicator.update(parsed)
+            if conn.publisher is not None:
+                conn.publisher.publish_values(parsed)
 
         # Quick Plot (CMP5/CMP6): data-only lines plot without any setup.
         # Names a Parsing channel already covers follow that channel instead.
@@ -1587,6 +1746,8 @@ class MainWindow(QMainWindow):
                     quick = {k: v for k, v in quick.items() if k not in names}
                 if quick:
                     conn.chart.quick_update(quick)
+                    if conn.publisher is not None:
+                        conn.publisher.publish_values(quick)
 
         if is_active:
             # Feed macro runner (for wait-for pattern matching)
@@ -1945,8 +2106,14 @@ class MainWindow(QMainWindow):
         # open, leaving a background reader running aborts the process on exit
         # ("QThread: Destroyed while thread is still running").
         self._settings.save()
+        self._serial.shutdown_scan()
         for conn in self._connections:
             self._flash.shutdown(conn)
+            self._transfer.shutdown(conn)
+            self._serial.set_publishing(conn, False)
+            self._serial.stop_repeat(conn)
+            self._tcp_share.stop(conn)
+            conn.snapshots.flush()
             conn.reconnecting = False
             for r in conn.readers.values():
                 if r.isRunning():

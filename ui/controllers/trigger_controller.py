@@ -17,12 +17,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, pyqtSlot
+from PyQt6.QtCore import Q_ARG, QMetaObject, QObject, Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QApplication
 
 import ui.main_window as _win   # colour globals (runtime access only)
 from core.i18n import tr
+from core.notifier import send_snapshot
 from core.triggers import Trigger, TriggerEngine
 
 
@@ -32,6 +33,27 @@ class TriggerController(QObject):
     def __init__(self, mw):
         super().__init__(mw)
         self._mw = mw
+        # A snapshot whose device went quiet still has to be written (CMP21).
+        self._snapshot_timer = QTimer(self)
+        self._snapshot_timer.setInterval(1000)
+        self._snapshot_timer.timeout.connect(self._poll_snapshots)
+        self._snapshot_timer.start()
+
+    def _poll_snapshots(self) -> None:
+        for conn in self._mw._connections:
+            conn.snapshots.poll()
+
+    def wire_snapshots(self, conn) -> None:
+        conn.snapshots.on_saved = lambda trig, path, text, c=conn: self._on_snapshot(
+            c, trig, path, text)
+        conn.snapshots.on_error = lambda msg, c=conn: self._mw._log(
+            "ERR", tr("Snapshot not saved: {err}").format(err=msg), _win.C_ERR, conn=c)
+
+    def _on_snapshot(self, conn, trigger: Trigger, path, text: str) -> None:
+        self._mw._log("SYS", tr("Snapshot saved: {path}").format(path=path), _win.C_SYS, conn=conn)
+        if trigger.snapshot_notify and trigger.notify_url:
+            send_snapshot(trigger.notify_url, trigger.notify_tg_chat, trigger.name,
+                          path.name, text)
 
     def on_match_threadsafe(self, conn, trigger: Trigger, line: str, ts: str) -> None:
         """Called from a connection's reader thread — marshal onto the GUI thread,
@@ -88,6 +110,9 @@ class TriggerController(QObject):
         if trigger.reply:
             self._send_reply(conn, trigger, line)
 
+        if conn.publisher is not None:
+            conn.publisher.publish_event(trigger.name, line, ts)
+
         conn.trigger.refresh_hits()
         conn.analytics.record_hit(trigger.name)
 
@@ -108,7 +133,8 @@ class TriggerController(QObject):
                                f"(a device echoing the reply would loop forever)",
                         _win.C_SYS, conn=conn)
             return
-        data = trigger.render_reply(line) + mw._serial.eol()
+        reply = trigger.render_reply(line)
+        data, _note = mw._serial.finish_frame(reply)
         err = conn.reader.send(data)
         if err:
             mw._log("ERR", f"[TRIGGER:{trigger.name}] reply failed: {err}", _win.C_ERR, conn=conn)
@@ -116,8 +142,8 @@ class TriggerController(QObject):
         conn.tx_bytes += len(data)
         if conn is mw._active_conn:
             mw._sb_tx.setText(f"TX: {mw._fmt_bytes(conn.tx_bytes)}")
-        shown = data.rstrip(b"\r\n").decode("utf-8", errors="replace")
-        mw._log("TX", f"↩ {shown}   [{trigger.name}]", _win.C_TX, conn=conn)
+        shown = reply.rstrip(b"\r\n").decode("utf-8", errors="replace")
+        mw._log("TX", f"↩ {shown}{_note}   [{trigger.name}]", _win.C_TX, conn=conn)
 
     def sync_analytics(self, conn=None) -> None:
         conn = conn or self._mw._active_conn
@@ -166,8 +192,19 @@ class TriggerController(QObject):
                 return
             allow_python = clicked is b_enable
 
+        # Sending snapshots gives a URL far more of the device's output than a
+        # notification does, so a file can't switch that on for someone.
+        sends = [d for d in data if isinstance(d, dict) and d.get("snapshot_notify")]
+        for d in sends:
+            d["snapshot_notify"] = False
+
         mw._engine.from_dict_list(data, allow_python=allow_python)
-        mw._trigger_panel._rebuild_list()
+        mw._trigger_panel._rebuild()
+        mw._trigger_panel.trigger_changed.emit()     # analytics lists the new rules
         if py_count and not allow_python:
             mw._log("SYS", f"Loaded {py_count} Python trigger(s) DISABLED — "
                            "open a rule in the editor to review and enable it.", _win.C_SYS)
+        if sends:
+            mw._log("SYS", tr("{n} loaded rule(s) would send snapshots to a URL. That is "
+                              "switched off: check the URL in the rule's editor and switch "
+                              "it on there.").format(n=len(sends)), _win.C_SYS)

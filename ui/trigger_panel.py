@@ -24,12 +24,16 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from core.checksum import ALGORITHMS
+from core.snapshot import MAX_LINES
 from core.triggers import Trigger, TriggerEngine, parse_trigger_line
+from ui.number_box import NumberBox
 
 
 HINTS = {
     "contains": "Case-insensitive substring.  Example:  Brownout Detector",
     "regex":    "Python re (IGNORECASE).  Example:  hard.?fault|HardFault_Handler|ERR_\\d+",
+    "checksum": "Fires on a line ending in *HH whose checksum is wrong; lines without that ending aren't checked.  Pattern:  " + "  ".join(ALGORITHMS),
     "python":   "Lambda returning bool. Case-sensitive — use .lower() for case-insensitive.  Example:  lambda line: 'err' in line.lower()",
 }
 
@@ -54,18 +58,18 @@ class _TrigRow(QWidget):
         lay.addWidget(self._en)
 
         type_lbl = QLabel(f"[{self.trigger.type}]")
-        type_lbl.setStyleSheet("font-family:'JetBrains Mono';font-size:9px;color:#3e4460;")
+        type_lbl.setObjectName("dimLabelMono")
         lay.addWidget(type_lbl)
 
         self._name = QLabel(self.trigger.name + ("  ↩" if self.trigger.reply else ""))
         if self.trigger.reply:
             self._name.setToolTip(f"Replies: {self.trigger.reply}")
-        self._name.setStyleSheet("color:#dde1ec;")
         self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         lay.addWidget(self._name)
 
         self._hits = QLabel("0")
-        self._hits.setStyleSheet("font-family:'JetBrains Mono';font-size:10px;color:#3e4460;min-width:18px;")
+        self._hits.setObjectName("dimLabelMono")
+        self._hits.setStyleSheet("min-width:18px;")
         lay.addWidget(self._hits)
 
         dot = QPushButton()
@@ -102,10 +106,7 @@ class _TrigRow(QWidget):
     def refresh(self):
         hits = self.trigger.hit_count
         self._hits.setText(str(hits))
-        self._hits.setStyleSheet(
-            f"font-family:'JetBrains Mono';font-size:10px;"
-            f"color:{'#ef4444' if hits else '#3e4460'};min-width:18px;"
-        )
+        self._hits.setStyleSheet("min-width:18px;" + ("color:#ef4444;" if hits else ""))
 
 
 class TriggerPanel(QWidget):
@@ -154,7 +155,7 @@ class TriggerPanel(QWidget):
         # Type + Color row
         r1 = QHBoxLayout(); r1.setSpacing(5)
         r1.addWidget(QLabel("Type"))
-        self._type_c = QComboBox(); self._type_c.addItems(["contains","regex","python"])
+        self._type_c = QComboBox(); self._type_c.addItems(["contains","regex","checksum","python"])
         self._type_c.currentTextChanged.connect(self._on_type)
         r1.addWidget(self._type_c)
         r1.addStretch()
@@ -196,6 +197,33 @@ class TriggerPanel(QWidget):
             "insert captured groups. Escapes: \\r \\n \\t \\0 \\xHH \\\\")
         r_rep.addWidget(self._reply)
         el.addLayout(r_rep)
+
+        # Snapshot (CMP21)
+        r_snap = QHBoxLayout(); r_snap.setSpacing(5)
+        self._a_snapshot = QCheckBox("Save snapshot")
+        self._a_snapshot.setToolTip(
+            "Save the lines around each match to a text file, in the Data Logger's\n"
+            "folder under snapshots/. Saved early if the device goes quiet.")
+        r_snap.addWidget(self._a_snapshot)
+        self._snap_before = self._line_count(100)
+        self._snap_after = self._line_count(50)
+        self._snap_notify = QCheckBox("Send to the URL below")
+        self._snap_notify.setToolTip(
+            "Also send the snapshot's text to the notification URL. This sends far\n"
+            "more of the device's output than the one matching line.")
+        self._snap_widgets = (self._snap_before, self._snap_after, self._snap_notify)
+        r_snap.addWidget(self._snap_before)
+        r_snap.addWidget(QLabel("lines before,"))
+        r_snap.addWidget(self._snap_after)
+        r_snap.addWidget(QLabel("after"))
+        r_snap.addSpacing(8)
+        r_snap.addWidget(self._snap_notify)
+        r_snap.addStretch()
+        self._a_snapshot.toggled.connect(
+            lambda on: [w.setEnabled(on) for w in self._snap_widgets])
+        for w in self._snap_widgets:
+            w.setEnabled(False)
+        el.addLayout(r_snap)
 
         self._hint = QLabel(""); self._hint.setObjectName("hint"); self._hint.setWordWrap(True)
         el.addWidget(self._hint)
@@ -247,6 +275,15 @@ class TriggerPanel(QWidget):
         self._editor.hide()
         root.addWidget(self._editor)
 
+    @staticmethod
+    def _line_count(value: int) -> NumberBox:
+        box = NumberBox()
+        box.setDecimals(0)
+        box.setRange(0, MAX_LINES)
+        box.setValue(value)
+        box.setFixedSize(52, 24)
+        return box
+
     # ── Editor ────────────────────────────────────────────────────────────────
     def _open_editor(self, row: _TrigRow | None = None):
         self._editing = row
@@ -264,9 +301,16 @@ class TriggerPanel(QWidget):
             self._notify_url.setText(t.notify_url)
             self._notify_tg.setText(t.notify_tg_chat)
             self._reply.setText(t.reply)
+            self._a_snapshot.setChecked(t.snapshot)
+            self._snap_before.setValue(t.snapshot_before)
+            self._snap_after.setValue(t.snapshot_after)
+            self._snap_notify.setChecked(t.snapshot_notify)
         else:
             self._pat.clear(); self._name_e.clear()
             self._notify_url.clear(); self._notify_tg.clear(); self._reply.clear()
+            self._a_snapshot.setChecked(False)
+            self._snap_before.setValue(100); self._snap_after.setValue(50)
+            self._snap_notify.setChecked(False)
         self._editor.show(); self._pat.setFocus()
 
     def _close_editor(self):
@@ -293,6 +337,10 @@ class TriggerPanel(QWidget):
             notify_url=self._notify_url.text().strip(),
             notify_tg_chat=self._notify_tg.text().strip(),
             reply=self._reply.text(),
+            snapshot=self._a_snapshot.isChecked(),
+            snapshot_before=int(self._snap_before.value()),
+            snapshot_after=int(self._snap_after.value()),
+            snapshot_notify=self._snap_notify.isChecked(),
         )
         if self._editing:
             idx = self._rows.index(self._editing)

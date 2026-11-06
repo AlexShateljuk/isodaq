@@ -179,6 +179,7 @@ QMenu {{
 }}
 QMenu::item {{ padding: 5px 28px 5px 12px; border-radius: 4px; }}
 QMenu::item:selected {{ background: {c['bg4']}; }}
+QMenu::item:disabled {{ color: {c['fg_dim']}; background: transparent; }}
 QMenu::separator {{ height: 1px; background: {c['border']}; margin: 4px 8px; }}
 
 /* ── Statusbar ──────────────────────────────────────────── */
@@ -313,6 +314,14 @@ QPushButton#hexToggle {{
 QPushButton#hexToggle:checked {{
     color: {c['accent']}; background: {c['accent_bg']}; border-color: {c['accent_brd']};
 }}
+QPushButton#frameBtn {{
+    background: transparent; border: 1px solid {c['border']}; border-radius: 3px;
+    color: {c['fg_dim']}; font-size: 10px; font-weight: 600; padding: 0 8px;
+}}
+QPushButton#frameBtn:checked {{
+    color: {c['accent']}; background: {c['accent_bg']}; border-color: {c['accent_brd']};
+}}
+QPushButton#frameBtn::menu-indicator {{ image: none; width: 0; }}
 
 /* Density: IDE-scale rows inside tool windows (was desktop-app spacing) */
 QWidget[dock="true"] QPushButton {{ padding: 3px 9px; font-size: 11px; }}
@@ -337,6 +346,8 @@ QScrollBar::handle:horizontal {{
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
 QScrollArea {{ border: none; background: transparent; }}
+QProgressBar {{ border: none; border-radius: 3px; background: {c['bg4']}; }}
+QProgressBar::chunk {{ border-radius: 3px; background: {c['accent']}; }}
 QSlider::groove:horizontal {{
     height: 4px; border-radius: 2px; background: {c['bg4']};
 }}
@@ -399,6 +410,9 @@ QSpinBox, QDoubleSpinBox {{
     font-size: 11px; min-height: 24px;
 }}
 QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {c['accent']}; }}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
+    color: {c['fg_dim']};
+}}
 QSpinBox::up-button, QSpinBox::down-button {{
     width: 16px; border: none; background: {c['bg4']}; border-radius: 2px;
 }}

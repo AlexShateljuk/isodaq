@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QPushButton, QComboBox, QVBoxLayout, QWidget,
 )
 
+from core.i18n import tr
 from core.logger import Logger
 
 
@@ -41,6 +42,7 @@ def _fmt(n: int, unit: str = "B") -> str:
 class LoggerPanel(QWidget):
     session_started = pyqtSignal(str, str)   # file_path, db_path
     session_stopped = pyqtSignal()
+    publish_toggled = pyqtSignal(bool)       # "Publish to MQTT" switched
 
     def __init__(self, logger: Logger, parent=None):
         super().__init__(parent)
@@ -126,6 +128,24 @@ class LoggerPanel(QWidget):
         self._lbl_path = QLabel("—")
         self._lbl_path.setObjectName("path")
         lay.addWidget(self._lbl_path)
+
+        # Publish to MQTT: another output, independent of the log session.
+        r5 = QHBoxLayout(); r5.setSpacing(6)
+        self.chk_mqtt = QCheckBox(tr("Publish to MQTT"))
+        self.chk_mqtt.setToolTip(tr(
+            "Sends parsed values and trigger events to a broker, for Grafana, Home "
+            "Assistant or Node-RED. Each channel goes to <base topic>/<name>, at most "
+            "10 times a second."))
+        self.chk_mqtt.toggled.connect(self.publish_toggled)
+        r5.addWidget(self.chk_mqtt)
+        self.mqtt_url = QLineEdit()
+        self.mqtt_url.setPlaceholderText("mqtt://broker.local/bench1")
+        r5.addWidget(self.mqtt_url, 1)
+        lay.addLayout(r5)
+        self.mqtt_status = QLabel("")
+        self.mqtt_status.setObjectName("path")
+        self.mqtt_status.setWordWrap(True)
+        lay.addWidget(self.mqtt_status)
         lay.addStretch()
 
     @staticmethod

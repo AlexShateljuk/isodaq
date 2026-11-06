@@ -17,8 +17,13 @@ from __future__ import annotations
 from PyQt6.QtCore import QEvent, QObject, Qt, QTimer
 
 import ui.main_window as _win   # colour globals (runtime access only)
+from core.ble_reader import BLEReader, BLEScanner, target_label
 from core.i18n import tr
+from core.modbus_reader import ModbusReader
+from core.mqtt_publisher import MqttPublisher
+from core.mqtt_reader import MQTTReader, parse_mqtt_url
 from core.net_reader import NetworkReader
+from core.periodic import PeriodicSender
 from core.serial_reader import SerialReader
 from core.ssh_reader import SSHReader
 
@@ -39,6 +44,9 @@ class SerialController(QObject):
         self._cmd_history: list[str] = []
         self._hist_idx: int = 0
         self._ssh_pw_cache: dict[str, str] = {}  # session name → password (this run only)
+        self._mqtt_pw_cache: dict[str, str] = {}  # user@host:port → password (this run only)
+        self._ble_scanner: BLEScanner | None = None
+        self._ble_found: list[dict] = []          # last scan, kept across transport changes
         # Auto-reconnect (CMP1): one 1 s tick serves every waiting connection.
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setInterval(1000)
@@ -74,8 +82,12 @@ class SerialController(QObject):
         conn = self._mw._active_conn
         r = conn.readers.get(kind)
         if r is None:
-            r = {"Network": NetworkReader, "SSH": SSHReader}.get(kind, SerialReader)(conn)
+            r = {"Network": NetworkReader, "SSH": SSHReader, "BLE": BLEReader,
+                 "MQTT": MQTTReader, "Modbus": ModbusReader}.get(kind, SerialReader)(conn)
             self.wire_reader(conn, r)
+            if kind == "Modbus":
+                r.values_read.connect(conn.modbus.update_values)
+                r.status.connect(conn.modbus.status.setText)
             conn.readers[kind] = r
         return r
 
@@ -85,6 +97,9 @@ class SerialController(QObject):
         mw = self._mw
         if mw._active_conn.flash_runner is not None:
             mw._log("SYS", "Flashing — the port is in use until it finishes.", _win.C_SYS)
+            return
+        if mw._active_conn.transfer is not None:
+            mw._log("SYS", "A file is being sent: cancel it first.", _win.C_SYS)
             return
         if mw._active_conn.reconnecting:
             self.stop_reconnect(mw._active_conn)
@@ -96,8 +111,25 @@ class SerialController(QObject):
         kind = mw._transport_combo.currentText()
         reader = self._reader_for(kind)
 
+        if kind == "BLE":
+            target = mw._port_combo.currentText().strip()
+            if not target:
+                mw._log("ERR", "Press ↻ to scan for Bluetooth devices, then pick one.", _win.C_ERR)
+                return
+            reader.configure(target)
+            self._start(reader)
+            return
+        if kind == "MQTT":
+            if self._configure_mqtt(reader):
+                self._start(reader)
+            return
+
         baud = self.baud()
         if baud is None:
+            return
+        if kind == "Modbus":
+            if self._configure_modbus(reader, baud):
+                self._start(reader)
             return
         data_str = mw._data_combo.currentText()   # e.g. "8N1"
         bytesize, parity, stopbits = int(data_str[0]), data_str[1], int(data_str[2])
@@ -136,14 +168,176 @@ class SerialController(QObject):
                              bytesize=bytesize, parity=parity, stopbits=stopbits,
                              flow=mw._flow_combo.currentText())
 
-        mw._active_conn.reader = reader
         reader.dtr = mw._chk_dtr.isChecked()
         reader.rts = mw._chk_rts.isChecked()
-        err = reader.connect_port()
+        err = self._start(reader, report=False)
         if err:
             if kind == "Serial" and baud not in STANDARD_BAUDS and "ioctl" in err.lower():
                 err += f" — this port/driver doesn't accept the custom rate {baud}"
             mw._log("ERR", f"Connection failed: {err}", _win.C_ERR)
+
+    def _start(self, reader, report: bool = True) -> str | None:
+        """Make *reader* the active connection's and open it."""
+        mw = self._mw
+        mw._active_conn.reader = reader
+        err = reader.connect_port()
+        if err and report:
+            mw._log("ERR", f"Connection failed: {err}", _win.C_ERR)
+        return err
+
+    def _configure_modbus(self, reader, baud: int) -> bool:
+        mw = self._mw
+        conn = mw._active_conn
+        target = mw._port_combo.currentText().strip()
+        if not target:
+            mw._log("ERR", "Pick a serial port, or enter a device: tcp://192.168.1.10:502",
+                    _win.C_ERR)
+            return False
+        data = mw._data_combo.currentText()
+        try:
+            reader.configure(target, baud, int(data[0]), data[1], int(data[2]))
+        except ValueError as e:
+            mw._log("ERR", str(e), _win.C_ERR)
+            return False
+        self.sync_modbus(conn)
+        if not conn.modbus.points():
+            mw._log("SYS", "No registers to poll yet: add them in the Modbus tool window.",
+                    _win.C_SYS)
+            mw._show_tool("modbus")
+        return True
+
+    def sync_modbus(self, conn) -> None:
+        """Hand the panel's map and settings to the connection's Modbus reader."""
+        reader = conn.readers.get("Modbus")
+        if reader is not None:
+            reader.set_points(conn.modbus.points())
+            reader.poll_ms = conn.modbus.poll.value()
+            reader.show_frames = conn.modbus.frames.isChecked()
+
+    def _configure_mqtt(self, reader) -> bool:
+        """Check the URL and get a password if the broker URL names a user. The
+        password stays in memory for this run; it is never saved."""
+        mw = self._mw
+        url = mw._port_combo.currentText().strip()
+        try:
+            target = parse_mqtt_url(url)
+        except ValueError as e:
+            mw._log("ERR", str(e), _win.C_ERR)
+            return False
+        password = self._mqtt_password(target)
+        if password is None:
+            return False
+        reader.configure(url, password)
+        return True
+
+    # ── Publish to MQTT (CMP17) ────────────────────────────────────────────────
+
+    def set_publishing(self, conn, on: bool) -> None:
+        """Data Logger's "Publish to MQTT" switch. Off stops it; a problem switches
+        it back off and says why, so the box never claims something isn't happening."""
+        panel = conn.logger_panel
+        if not on:
+            if conn.publisher is not None:
+                conn.publisher.stop()
+                conn.publisher.deleteLater()
+                conn.publisher = None
+            panel.mqtt_status.setText("")
+            panel.mqtt_url.setEnabled(True)
+            return
+        url = panel.mqtt_url.text().strip()
+        try:
+            target = parse_mqtt_url(url)
+            password = self._mqtt_password(target)
+            if password is None:             # prompt cancelled
+                panel.chk_mqtt.setChecked(False)
+                return
+            pub = MqttPublisher(url, password, conn)
+            pub.status.connect(panel.mqtt_status.setText)
+            pub.start()
+        except ImportError:
+            self._publish_refused(panel, "MQTT needs the 'paho-mqtt' package: pip install paho-mqtt")
+            return
+        except (ValueError, OSError) as e:
+            self._publish_refused(panel, str(e))
+            return
+        conn.publisher = pub
+        panel.mqtt_url.setEnabled(False)
+
+    @staticmethod
+    def _publish_refused(panel, message: str) -> None:
+        panel.chk_mqtt.setChecked(False)
+        panel.mqtt_status.setText(message)
+
+    def _mqtt_password(self, target) -> str | None:
+        """The password for a URL that names a user: asked once per run, never
+        saved. ``None`` if the user cancelled."""
+        if not target.username:
+            return ""
+        key = f"{target.username}@{target.host}:{target.port}"
+        if key not in self._mqtt_pw_cache:
+            pw = self._prompt_ssh_password({"username": target.username, "host": target.host})
+            if pw is None:
+                return None
+            self._mqtt_pw_cache[key] = pw
+        return self._mqtt_pw_cache[key]
+
+    # ── Bluetooth scan ─────────────────────────────────────────────────────────
+
+    def scan_ble(self) -> None:
+        mw = self._mw
+        if self._ble_scanner is not None:
+            return
+        mw._log("SYS", "Scanning for Bluetooth devices…", _win.C_SYS)
+        mw._refresh_btn.setEnabled(False)
+        self._ble_scanner = BLEScanner(self)
+        self._ble_scanner.found.connect(self._on_ble_found)
+        self._ble_scanner.failed.connect(lambda msg: mw._log("ERR", msg, _win.C_ERR))
+        self._ble_scanner.finished.connect(self._on_ble_scan_done)
+        self._ble_scanner.start()
+
+    def _on_ble_scan_done(self) -> None:
+        scanner, self._ble_scanner = self._ble_scanner, None
+        if scanner is not None:
+            scanner.deleteLater()
+        self._mw._refresh_btn.setEnabled(
+            self._mw._transport_combo.currentText() not in ("Network", "MQTT"))
+
+    def _on_ble_found(self, devices: list) -> None:
+        mw = self._mw
+        self._ble_found = devices
+        mw._log("SYS", f"Bluetooth: {len(devices)} device(s) found.", _win.C_DIM)
+        if mw._transport_combo.currentText() == "BLE":
+            self.populate_ble_combo()
+
+    def populate_modbus_combo(self, target: str) -> None:
+        """Serial ports to pick from (RTU), keeping a typed target (TCP or RTU)."""
+        from ui.port_list import fill
+        mw = self._mw
+        infos = SerialReader.port_info()
+        fill(mw._port_combo, infos, "")
+        if not infos:
+            mw._port_combo.clear()
+        mw._port_combo.setEditText(target)
+
+    def populate_ble_combo(self) -> None:
+        """Fill the target list from the last scan, keeping what's in the field."""
+        from ui.port_list import fill
+        mw = self._mw
+        combo = mw._port_combo
+        current = combo.currentText()
+        infos = [{"device": target_label(d["name"], d["address"]),
+                  "description": "  ".join(x for x in (
+                      "serial" if d["uart"] else "",
+                      f"{d['rssi']} dBm" if d["rssi"] is not None else "") if x),
+                  "vid": None, "pid": None, "serial": None} for d in self._ble_found]
+        fill(combo, infos, "")
+        if not infos:
+            combo.clear()
+        combo.setEditText(current or (infos[0]["device"] if infos else ""))
+
+    def shutdown_scan(self) -> None:
+        if self._ble_scanner is not None:
+            self._ble_scanner.wait(10_000)
 
     def baud(self) -> int | None:
         """The baud box as a number (any rate the driver accepts — 74880,
@@ -183,6 +377,8 @@ class SerialController(QObject):
 
     def on_disconnected(self, conn) -> None:
         mw = self._mw
+        # Don't carry on with commands once the device is back: it may have reset.
+        self.stop_repeat(conn, tr("Repeat stopped: the connection closed."))
         if conn.reconnecting:
             # A failed network/SSH retry — stay quiet, the tick tries again.
             mw._update_conn_tab(conn)
@@ -191,6 +387,7 @@ class SerialController(QObject):
             self.start_reconnect(conn)
             return
         mw._log("SYS", "Disconnected.", _win.C_SYS, conn=conn)
+        mw._tcp_share.on_link_closed(conn)
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
             mw._conn_btn.setText(tr("Connect"))
@@ -246,6 +443,7 @@ class SerialController(QObject):
             conn.reader.disconnect_port()
         if not quiet:
             mw._log("SYS", "Auto-reconnect stopped.", _win.C_SYS, conn=conn)
+        mw._tcp_share.on_link_closed(conn)
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
             mw._refresh_conn_state()
@@ -531,43 +729,61 @@ class SerialController(QObject):
     # ── TX ──────────────────────────────────────────────────────────────────────
 
     def send_command(self) -> None:
-        """Send the command field over the port with the selected EOL, log it,
-        update the TX counter, and push it into history."""
+        """Send the command field over the port as a frame (text or hex, checksum,
+        line ending), log it, update the TX counter, and push it into history."""
         mw = self._mw
         text = mw._cmd_edit.text().strip()
         if not text:
             return
         self._cmd_history.append(text)
         self._hist_idx = len(self._cmd_history)
-
-        data = text.encode() + self.eol()
-
-        err = mw._reader.send(data)
-        if err:
-            mw._log("ERR", err, _win.C_ERR)
-        else:
-            mw._tx_bytes += len(data)
-            mw._sb_tx.setText(f"TX: {mw._fmt_bytes(mw._tx_bytes)}")
-            mw._log("TX", text, _win.C_TX)
-            mw._session.feed_line(text, "tx")
-
+        try:
+            data, shown = self.command_frame(text)
+        except ValueError as e:
+            mw._log("ERR", str(e), _win.C_ERR)   # keep the text, to correct it
+            return
+        self.send_on(mw._active_conn, data, shown)
         mw._cmd_edit.clear()
 
     def send_bytes(self, data: bytes, shown: str, line_ending: bool = True) -> bool:
         """Send *data* on the active connection, logged and counted like a typed
         command. Returns whether it went out."""
+        data, note = self.finish_frame(data, line_ending)
+        return self.send_on(self._mw._active_conn, data, shown + note) is None
+
+    def send_on(self, conn, data: bytes, shown: str) -> str | None:
+        """Send a finished frame on *conn*, logged and counted. Returns the error."""
         mw = self._mw
-        if line_ending:
-            data += self.eol()
-        err = mw._reader.send(data)
+        err = conn.reader.send(data)
         if err:
-            mw._log("ERR", err, _win.C_ERR)
-            return False
-        mw._tx_bytes += len(data)
-        mw._sb_tx.setText(f"TX: {mw._fmt_bytes(mw._tx_bytes)}")
-        mw._log("TX", shown, _win.C_TX)
-        mw._session.feed_line(shown, "tx")
-        return True
+            mw._log("ERR", err, _win.C_ERR, conn=conn)
+            return err
+        conn.tx_bytes += len(data)
+        mw._log("TX", shown, _win.C_TX, conn=conn)
+        if conn is mw._active_conn:
+            mw._sb_tx.setText(f"TX: {mw._fmt_bytes(conn.tx_bytes)}")
+            mw._session.feed_line(shown, "tx")
+        return None
+
+    def command_frame(self, text: str) -> tuple[bytes, str]:
+        """The frame for *text* from a command field, and how to show it. A hex
+        frame is binary, so it takes no line ending, and is shown byte for byte.
+        Raises ``ValueError`` for bad hex."""
+        frame = self._mw._frame_btn
+        data = frame.command_bytes(text)
+        if frame.hex_input:
+            data += frame.tail(data)
+            return data, data.hex(" ").upper()
+        data, note = self.finish_frame(data)
+        return data, text + note
+
+    def finish_frame(self, data: bytes, line_ending: bool = True) -> tuple[bytes, str]:
+        """*data* with the chosen checksum and line ending, and a note of the
+        checksum for the terminal."""
+        frame = self._mw._frame_btn
+        tail = frame.tail(data)
+        note = f"   [{frame.describe(tail)}]" if tail else ""
+        return data + tail + (self.eol() if line_ending else b""), note
 
     def eol(self) -> bytes:
         """The line ending selected in the command bar."""
@@ -579,6 +795,74 @@ class SerialController(QObject):
         if text:
             self._mw._cmd_edit.setText(text)
             self.send_command()
+
+    # ── Repeat a command (CMP8) ─────────────────────────────────────────────────
+
+    def toggle_repeat(self) -> None:
+        conn = self._mw._active_conn
+        if conn.repeat is not None:
+            self.stop_repeat(conn, tr("Repeat stopped after {n} sends.").format(n=conn.repeat.sent))
+        else:
+            self.start_repeat()
+
+    def start_repeat(self) -> None:
+        """Repeat the custom command on the active connection, as framed right now."""
+        mw = self._mw
+        conn = mw._active_conn
+        text = mw._custom_cmd.toPlainText().strip()
+        if not text or conn.repeat is not None:
+            return
+        try:
+            data, shown = self.command_frame(text)
+        except ValueError as e:
+            mw._log("ERR", str(e), _win.C_ERR)
+            return
+        sender = PeriodicSender(lambda: self.send_on(conn, data, shown),
+                                int(mw._repeat_ms.value()), int(mw._repeat_count.value()), self)
+        sender.finished.connect(lambda why, c=conn: self._on_repeat_finished(c, why))
+        sender.progress.connect(lambda _n, c=conn: self._show_repeat(c))
+        conn.repeat = sender
+        if sender.start() is not None:   # send_on has shown why
+            conn.repeat = None
+            sender.deleteLater()
+        self._show_repeat(conn)
+        mw._refresh_activity()
+
+    def _on_repeat_finished(self, conn, why: str) -> None:
+        sender = conn.repeat
+        if sender is None:
+            return
+        self.stop_repeat(conn, tr("Repeat stopped: {err}").format(err=why) if why
+                         else tr("Repeat finished: {n} sent.").format(n=sender.sent))
+
+    def stop_repeat(self, conn, message: str = "") -> None:
+        sender = conn.repeat
+        if sender is None:
+            return
+        conn.repeat = None
+        sender.stop()
+        sender.deleteLater()
+        if message:
+            self._mw._log("SYS", message, _win.C_SYS, conn=conn)
+        self._show_repeat(conn)
+        self._mw._refresh_activity()
+
+    def _show_repeat(self, conn) -> None:
+        """The Repeat button and count show the active connection's own repeat."""
+        mw = self._mw
+        if conn is not mw._active_conn:
+            return
+        sender = conn.repeat
+        mw._repeat_btn.setText(tr("Stop") if sender is not None else tr("Repeat"))
+        mw._repeat_btn.setObjectName("stop" if sender is not None else "add")
+        mw._repolish(mw._repeat_btn)
+        if sender is None:
+            mw._repeat_status.setText("")
+        elif sender.count:
+            mw._repeat_status.setText(tr("Sent {n} of {total}").format(n=sender.sent,
+                                                                       total=sender.count))
+        else:
+            mw._repeat_status.setText(tr("Sent {n}").format(n=sender.sent))
 
     def set_cmd(self, cmd: str) -> None:
         self._mw._cmd_edit.setText(cmd)

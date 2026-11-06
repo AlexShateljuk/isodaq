@@ -43,6 +43,12 @@ class SettingsManager(QObject):
         _set_combo(mw._data_combo,   "data")
         _set_combo(mw._flow_combo,   "flow")
         _set_combo(mw._eol_combo,    "eol")
+        mw._frame_btn.from_dict(data.get("frame"))
+        for box, key in ((mw._repeat_ms, "repeat_ms"), (mw._repeat_count, "repeat_count")):
+            if isinstance(data.get(key), (int, float)):
+                box.setValue(data[key])
+        if isinstance(data.get("tcp_share_port"), int):
+            mw._tcp_share.port = data["tcp_share_port"]
 
         # Port is restored after _refresh_ports(); store for deferred apply
         mw._restore_port = data.get("port", "")
@@ -50,6 +56,9 @@ class SettingsManager(QObject):
         # Transport (serial/network/ssh) — restore targets first, then the combo
         # so its currentTextChanged handler picks up the saved URL / SSH sessions.
         mw._net_url = str(data.get("net_url", ""))
+        mw._ble_target = str(data.get("ble_target", ""))
+        mw._mqtt_url = str(data.get("mqtt_url", ""))
+        mw._modbus_target = str(data.get("modbus_target", ""))
 
         sessions = data.get("ssh_sessions")
         if isinstance(sessions, list):
@@ -113,6 +122,11 @@ class SettingsManager(QObject):
             mw._parser.set_snippet(data["snippet"])
             mw._parse_panel.load_snippet(data["snippet"])
 
+        # The address only: publishing is never switched on by itself at startup.
+        mw._active_conn.logger_panel.mqtt_url.setText(str(data.get("mqtt_publish_url", "")))
+        mw._active_conn.modbus.from_dict(data.get("modbus", {}))
+        mw._active_conn.flash_panel.set_transfer_config(str(data.get("transfer_mode", "")),
+                                                        str(data.get("transfer_path", "")))
         mw._active_conn.flash_panel.set_config(str(data.get("flash_command", "")),
                                                str(data.get("flash_cwd", "")))
 
@@ -156,6 +170,10 @@ class SettingsManager(QObject):
                 "port":       mw._port_combo.currentText(),
                 "transport":    mw._transport_combo.currentText(),
                 "net_url":      getattr(mw, "_net_url", ""),
+                "ble_target":   mw._ble_target if mw._target_kind != "BLE"
+                                else mw._port_combo.currentText().strip(),
+                "mqtt_url":     mw._mqtt_url if mw._target_kind != "MQTT"
+                                else mw._port_combo.currentText().strip(),
                 # Saved SSH sessions — passwords are deliberately never persisted.
                 "ssh_sessions": [{
                     "name":     s.get("name", ""),
@@ -170,6 +188,10 @@ class SettingsManager(QObject):
                 "data":       mw._data_combo.currentText(),
                 "flow":       mw._flow_combo.currentText(),
                 "eol":        mw._eol_combo.currentText(),
+                "frame":      mw._frame_btn.to_dict(),
+                "repeat_ms":    int(mw._repeat_ms.value()),
+                "repeat_count": int(mw._repeat_count.value()),
+                "tcp_share_port": mw._tcp_share.port,
                 "prefix":     mw._parse_panel.default_prefix(),
                 "timestamp":  mw._chk_ts.isChecked(),
                 "hex":        mw._chk_hex.isChecked(),
@@ -183,6 +205,12 @@ class SettingsManager(QObject):
                 "theme":      mw._current_theme,
                 "colorizer":  list(mw._log_colorizer_enabled),
                 "channels":   mw._parser.to_dict_list(),
+                "mqtt_publish_url": mw._active_conn.logger_panel.mqtt_url.text().strip(),
+                "modbus":        mw._active_conn.modbus.to_dict(),
+                "modbus_target": mw._modbus_target if mw._target_kind != "Modbus"
+                                 else mw._port_combo.currentText().strip(),
+                "transfer_mode": mw._active_conn.flash_panel.transfer_mode(),
+                "transfer_path": mw._active_conn.flash_panel.transfer_path(),
                 "flash_command": mw._active_conn.flash_panel.command(),
                 "flash_cwd":     mw._active_conn.flash_panel.cwd(),
                 "snippet":    mw._parser.get_snippet(),
