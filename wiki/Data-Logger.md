@@ -58,3 +58,25 @@ can capture the host's data locally.
   scrollback cap or **Clear** — the on-screen view and the log are independent.
 - Stopping the session flushes and closes both sinks cleanly; the app also flushes
   on exit.
+
+## Publish to MQTT
+
+Sends this connection's data to a broker, for Grafana, Home Assistant, Node-RED or
+anything else that speaks MQTT. It works with any transport and doesn't need a log
+session. Enter a broker and base topic, then tick **Publish to MQTT**:
+
+```
+mqtt://broker.local/bench1
+```
+
+| Topic | Payload | When |
+|-------|---------|------|
+| `bench1/temp` | `21.5` | parsed channels and [Quick Plot](Live-Views#quick-plot) values |
+| `bench1/event/Brownout` | `{"trigger": "Brownout", "line": "…", "ts": "…"}` | each [trigger](Triggers) match |
+
+- Each channel is sent **at most 10 times a second**, always with its latest value. The
+  log file is the complete record; this is a live feed.
+- If the broker can't be reached the status line says so and it keeps retrying. Messages
+  during an outage are skipped, not queued.
+- Without a topic in the URL, the base topic is `isodaq`.
+- The address is remembered, but publishing is **off at every start** until you tick it.

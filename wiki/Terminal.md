@@ -49,6 +49,32 @@ The input row at the bottom sends a single line:
 - **Custom command** — the *Custom command* tool window (left edge) holds a
   free-text box for a longer or reused command, sent with its own button.
 
+### Hex commands and checksums
+
+The button to the left of **Send** says how commands go out. It reads `Text` by default and
+lights up when it changes the bytes you send.
+
+- **Type commands as: Hex bytes** — type `01 03 00 00 00 02`, `0x55 0xAA` or `55AA`. A hex
+  command gets no line ending, since it is usually a binary frame, and the terminal shows
+  the whole frame byte for byte.
+- **Append checksum** — Sum-8, XOR-8, LRC-8, CRC-8, CRC-8/Maxim, CRC-16/Modbus,
+  CRC-16/CCITT (the `FALSE` variant), CRC-16/XMODEM or CRC-32. It goes before the line ending.
+- **Checksum as** — raw bytes in either order (choosing a checksum selects its usual order:
+  low byte first for Modbus, high byte first for the others), hex text, or `*` and hex text
+  as NMEA uses it, which leaves a leading `$` or `!` out of the sum.
+
+With text commands the terminal shows the checksum after the command: `$AB   [*03]`. The
+checksum also goes on repeated commands, [Controls](Controls) and trigger replies, but not
+on [Macros](Macros) or files you send.
+
+### Repeating a command
+
+In the *Custom command* tool window, set **Every** (milliseconds, 10 or more) and **Times**
+(0 repeats until stopped), then **Repeat**. The frame is fixed when it starts. A repeat
+belongs to the current device and carries on while you look at another tab; the status bar
+shows it while that device is active. It stops if a send fails or the connection closes,
+and doesn't restart after a reconnect, since the device may have reset.
+
 For scripted, multi-step command flows (with delays and wait-for-response),
 use [Macros](Macros).
 

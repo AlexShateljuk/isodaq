@@ -8,6 +8,7 @@
 **Connecting & terminal**
 - [Serial Connection](Serial-Connection)
 - [Multiple Connections](Multiple-Connections)
+- [Modbus](Modbus)
 - [Terminal](Terminal)
 - [Log Colorizer](Log-Colorizer)
 

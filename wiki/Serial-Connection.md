@@ -7,9 +7,9 @@ connection (the selected [connection tab](Multiple-Connections)).
 
 | Control | Options | Notes |
 |---------|---------|-------|
-| **Transport** | Serial · Network · SSH | what kind of source this connection reads |
+| **Transport** | Serial · Network · SSH · BLE · MQTT · [Modbus](Modbus) | what kind of source this connection reads |
 | **Port / target** | serial ports · a URL · a saved SSH session | see the transports below |
-| **↻** | — | rescan serial ports (in SSH mode it becomes **✎** to edit the session) |
+| **↻** | — | rescan serial ports or scan for Bluetooth devices (in SSH mode it becomes **✎** to edit the session) |
 | **Baud** | 9600 … 74880 · 115200 … 921600 · 1000000 · 2000000 — or **type any rate** | must match your firmware; custom rates need driver support (real USB adapters have it, virtual ports often don't) |
 | **Connect** | — | toggles to **Disconnect** once open |
 | **`⋯`** | Data (8N1 · 8E1 · 8O1 · 7N1), Flow (None · RTS/CTS · XON/XOFF), **Lines** (DTR · RTS · BREAK), **Reset** (Board · DTR pulse · Bootloader), **Auto-reconnect**, Timestamp / HEX / Autoscroll / Echo, font size, Clear | set-once options |
@@ -52,6 +52,51 @@ line sends to the remote command's stdin.
   blank to use a key or ssh-agent).
 - Needs `paramiko` (bundled in the release binaries; `pip install paramiko` when
   running from source).
+
+### BLE (Bluetooth Low Energy)
+
+For boards with a serial-over-Bluetooth service. Press **↻** to scan for about five
+seconds and pick a device: serial devices are listed first, then by signal strength.
+You can also type an address.
+
+These services are recognised: **Nordic UART** (the usual ESP32 and nRF choice),
+**HM-10** style modules, **Microchip Transparent UART** and **u-blox SPS**. Any other
+device with one notifying and one writable characteristic in a service is tried too.
+If there's nothing usable, the terminal says so and disconnects.
+
+Long messages are split to fit the link. DTR, RTS and BREAK don't exist over BLE.
+
+On macOS the first scan asks for permission to use Bluetooth. When running from source,
+the permission belongs to your terminal or editor. Needs `bleak` (bundled in the release
+binaries; `pip install bleak` when running from source).
+
+### MQTT
+
+Uses a broker as the data source. Type a URL into the target field:
+
+```
+mqtt://[user@]host[:port]/topic/filter[,other/#][?tx=publish/topic]
+```
+
+| URL | Meaning |
+|-----|---------|
+| `mqtt://broker.local/sensors/#` | everything under `sensors/` (receive only) |
+| `mqtt://broker.local/a/#,b/+/c` | several topic filters |
+| `mqtt://broker.local/dev/1/#?tx=dev/1/cmd` | what you send is published to `dev/1/cmd` |
+| `mqtts://ann@broker.local/dev/#` | TLS (port 8883), as user `ann` |
+
+Each message becomes one terminal line, `topic: payload`, so triggers, the
+[parser](Data-Parser), logging and [Quick Plot](Live-Views#quick-plot) work as usual: a
+number on `sensors/temp` plots by itself as `sensors/temp`, and a JSON payload can be read
+by a Parsing channel.
+
+Passwords aren't part of the URL, because targets are saved in the settings file. If the
+URL names a user you're asked once per run, and the password is never written to disk.
+Plain `mqtt://` is unencrypted; use `mqtts://` on networks you don't trust. To send data
+*to* a broker from any connection, see [Publish to MQTT](Data-Logger#publish-to-mqtt).
+
+Needs `paho-mqtt` (bundled in the release binaries; `pip install paho-mqtt` when running
+from source).
 
 ## Connecting
 
@@ -138,6 +183,50 @@ The command runs in your login shell, so tools on your `PATH` work even when the
 app was started from Finder or a desktop launcher. Anything set up only for
 interactive shells has to be part of the command, e.g.
 `. ~/esp/esp-idf/export.sh && idf.py -p {port} flash`. See
+[SECURITY.md](https://github.com/AlexShateljuk/isodaq/blob/master/SECURITY.md).
+
+## Sending a file (XMODEM / YMODEM)
+
+For bootloaders and firmware that receive uploads over the serial link itself. It's in
+the **Flash** tool window, and works on Serial and Network connections.
+
+1. Connect, and tell the device to receive from the command bar (for example `rx`, or
+   `loady` in U-Boot).
+2. Pick the protocol and the file, then press **Send file**.
+
+| Protocol | Blocks | Notes |
+|----------|--------|-------|
+| **XMODEM** | 128 bytes | Uses CRC or checksum, whichever the receiver asks for |
+| **XMODEM-1K** | 1024 bytes | Falls back to 128 for a checksum-only receiver |
+| **YMODEM** | 1024 bytes | Also sends the file name and exact size |
+
+XMODEM pads the last block with `0x1A`; YMODEM tells the receiver the real size. The
+transfer waits up to a minute for the receiver to start, and a stray `C` in a device's
+banner won't start it by mistake.
+
+While a file is going across, the transfer has the port to itself: received data isn't
+shown or logged, and nothing else can send. Afterwards the terminal carries on as before.
+Sending only; receiving a file isn't supported yet.
+
+## Sharing a port over TCP
+
+**Device → Share port over TCP…** lets other programs use the connection while IsoDAQ stays
+connected to it: a flashing or logging tool, a script, `nc 127.0.0.1 7777`, or another IsoDAQ
+with the Network transport and `socket://host:7777`. Bytes pass unchanged in both directions.
+Serial, Network, SSH and Bluetooth connections can be shared; MQTT and Modbus can't, as they
+aren't byte streams.
+
+- Up to 8 clients. Each gets everything the device sends; what any of them sends goes to the
+  device, and shows in the terminal as `[tcp] …`.
+- A client that falls more than 1 MB behind is disconnected, and the terminal says so, so that
+  it can't hold up the device or the others.
+- It stays on through an automatic reconnect or a flash, and ends when you disconnect. It is
+  off at every start.
+- During a [file transfer](#sending-a-file-xmodem--ymodem) clients get nothing, and what they
+  send is refused.
+
+**There is no password and no encryption**, and clients can write to the device. It listens on
+this computer only unless you choose **Any computer on the network**; see
 [SECURITY.md](https://github.com/AlexShateljuk/isodaq/blob/master/SECURITY.md).
 
 ## Under the hood — the high-throughput reader

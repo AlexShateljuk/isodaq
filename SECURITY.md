@@ -54,7 +54,33 @@ It is stored in your own `config.json`; only trust a `config.json` from someone
 else as far as you would trust a script from them. Nothing received from a
 device or a shared session can start it or change it: viewers are read-only.
 
-### 4. Session sharing
+### 4. MQTT
+
+Plain `mqtt://` sends data, and any password, unencrypted; use `mqtts://` on networks
+you don't trust. Passwords are kept in memory for the current run and never saved, and
+a URL containing one is refused. **Publish to MQTT** sends device data to the broker
+you enter, and is off at every start until you switch it on. Anyone subscribed to a
+topic on that broker can read it. Commands you type go to the one topic in `tx=`;
+nothing received over MQTT is executed.
+
+### 5. Sharing a port over TCP
+
+**Share port over TCP** has no password and no encryption, and a client can write to the
+device, so anything that can reach the port can do what you can do at the terminal. That
+includes other programs and users on your computer. It is off at every start and listens
+on this computer only by default. **Any computer on the network** warns you first, and the
+status bar shows the port and the number of clients for as long as it is on. To reach it
+from elsewhere, an SSH tunnel to the local port is safer than opening it to the network.
+
+### 6. Trigger snapshots and notification URLs
+
+A trigger's notification sends the matching line to its URL. With **Send to the URL below**
+on, it sends the whole snapshot as well, which can be far more of the device's output.
+A trigger file you load can contain a URL, so check the rules in files from others. Loading
+a file always switches snapshot sending off, whatever the file says. Snapshots are plain
+text in the Data Logger's folder, under `snapshots/`.
+
+### 7. Session sharing
 
 The public relay (`relay/server.py`, hosted on Railway) is an **unauthenticated,
 best-effort** convenience:

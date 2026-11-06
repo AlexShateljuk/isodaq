@@ -22,7 +22,7 @@ across the top and a status bar across the bottom.
 |------|--------------|
 | **Left** | **Devices** (all connections and their state) · **Parsing** · **Macros** · **Custom command** |
 | **Right** | **Graphs** · **Indicators** · **Controls** |
-| **Bottom** | **Events** · **Analytics** · **Triggers** · **Data Logger** · **Flash** |
+| **Bottom** | **Events** · **Analytics** · **Triggers** · **Data Logger** · **Flash** · **Modbus** |
 
 - Click a name on a stripe to open that tool window; click it again (or the `×`
   in the tool window's header) to collapse it back to the stripe.
@@ -57,7 +57,7 @@ Type a few letters — matching is fuzzy, so `hx` finds *HEX view* and `gr` find
 | Menu | Contains |
 |------|----------|
 | **File** | Save / Load triggers, Exit |
-| **Device** | Refresh ports, Build & flash (`F5`) |
+| **Device** | Refresh ports, Build & flash (`F5`), Send file (XMODEM / YMODEM) |
 | **View** | Command Palette… (`Ctrl+Shift+P`), Find… (`Ctrl+F`), Simple Mode (`Ctrl+Shift+M`), Right Panel (`Ctrl+Shift+R`), Detach Tool Window (`F4`), Theme |
 | **Settings** | Log Colorizer…, Preferences… |
 | **Help** | Check for Updates, About |

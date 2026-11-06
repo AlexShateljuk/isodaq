@@ -12,10 +12,17 @@ line matches, the trigger fires its configured **actions**. Manage triggers in t
 |------|---------|---------|
 | **contains** | case-insensitive substring | `Brownout Detector` |
 | **regex** | Python regular expression (IGNORECASE) | `hard.?fault\|HardFault_Handler\|ERR_\d+` |
+| **checksum** | a line ending in `*HH` whose checksum is wrong | `xor8` |
 | **python** | a `lambda line: …` predicate returning bool | `lambda line: 'ERR' in line and '=' in line` |
 
 You can set the type explicitly in the editor, or **prefix** the pattern and let
-the app detect it: `[regex] …`, `[python] …`. Plain text defaults to *contains*.
+the app detect it: `[regex] …`, `[checksum] …`, `[python] …`. Plain text defaults
+to *contains*.
+
+For **checksum** the pattern names the algorithm: `sum8`, `xor8`, `lrc8`, `crc8`,
+`crc8-maxim`, `crc16-modbus`, `crc16-ccitt`, `crc16-xmodem` or `crc32`. `xor8` checks NMEA
+sentences. Only lines ending in `*` and the right number of hex digits are checked, so
+ordinary log lines never fire it. It works on text lines; binary frames aren't checked.
 
 ## Actions
 
@@ -29,6 +36,7 @@ Tick any combination per trigger:
 | **Pause log** | Stop the active logging session |
 | **Resume log** | Restart a stopped logging session |
 | **Reply** | Send text back to the device (auto-response) — see below |
+| **Save snapshot** | Save the lines around the match to a file — see below |
 
 ### Auto-reply
 
@@ -57,6 +65,35 @@ adds a step to the [Analytics](Live-Views#analytics) staircase. **Reset** in the
 Triggers header clears the hit counters.
 
 <br clear="right">
+
+### Snapshots
+
+**Save snapshot** writes the lines before and after each match to a text file, up to 1000
+of each, in the Data Logger's folder under `snapshots/`, for example
+`Brownout_20261106_142530.txt`. Matching lines are marked `>>`:
+
+```
+# IsoDAQ snapshot: Brownout
+# Device: /dev/cu.usbserial-0001
+# Time: 2026-11-06 14:25:30
+# Pattern: [contains] Brownout
+
+14:25:30.102      I (340) sensor: reading 7
+14:25:30.214  >>  E (360) Brownout detector was triggered
+14:25:30.561      I (0) boot: restart
+```
+
+- A fault often stops the output, so a snapshot is written with what it has after 10 seconds
+  without a line, or 60 seconds after the match, and says how many lines it is short.
+- While a snapshot is open, more matches are only marked in it. New snapshots of one rule
+  are at least 5 seconds apart, and the file notes any matches skipped. A session saves at
+  most 500, and says so when it stops.
+- Lines received during an overload are included, even though the terminal skipped drawing them.
+  Commands you send aren't.
+
+**Send to the URL below** also sends the text to the rule's notification URL (see
+[Security](#security)): a webhook gets a `snapshot` field with up to 256 KB, and Telegram gets
+the last 3900 characters, since it limits message length.
 
 ## Notifications (webhook / Telegram)
 
@@ -87,6 +124,10 @@ you safe:
   you and lets you choose **Load & enable**, **Load disabled**, or **Cancel**.
 - Rules loaded **disabled** stay *blocked* — their code is never evaluated — until
   you open the rule in the editor and explicitly enable it.
+
+A trigger file can also contain notification URLs, so check the rules in files from others:
+a rule with a URL sends each matching line there. Loading a file always switches off sending
+snapshots to a URL, whatever the file says; switch it on in the rule's editor if you want it.
 
 Only enable Python rules from sources you trust. See
 [SECURITY.md](https://github.com/AlexShateljuk/isodaq/blob/master/SECURITY.md).

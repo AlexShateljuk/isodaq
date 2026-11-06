@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Hex commands and checksums** — a button by **Send** switches the command field to hex
+  bytes (`01 03 00 00 00 02`) and appends a checksum: Sum-8, XOR-8, LRC-8, CRC-8,
+  CRC-8/Maxim, CRC-16 (Modbus, CCITT, XMODEM) or CRC-32, as raw bytes in either order, as
+  hex text, or in the NMEA `*HH` form. It also applies to repeated commands, controls and
+  trigger replies. A new **checksum** trigger type fires on received lines whose `*HH`
+  ending is wrong.
+- **Repeat a command** — the Custom command tool window can send its command every N ms, a
+  set number of times or until stopped, per device. It stops when the connection closes or
+  a send fails.
+- **Trigger snapshots** — a trigger can save the lines before and after each match to a
+  text file, marked up and in order, and optionally send it to the notification URL. It
+  doesn't wait for ever: if the device goes quiet after a fault, the file is written with
+  what there is. A trigger that keeps firing can't fill the disk.
+- **Share a port over TCP** — Device → Share port over TCP lets other programs, or another
+  IsoDAQ with `socket://host:port`, read and write a Serial, Network, SSH or Bluetooth
+  connection, byte for byte, while the app stays connected. Off at every start, on this
+  computer only unless you choose otherwise, and shown in the status bar while on.
+- **Modbus RTU and TCP** — a transport that polls a register map you define in the new
+  Modbus tool window: holding, input, coil and discrete tables; u16, i16, u32, i32 and f32
+  with swapped word order; scaling. Values arrive as ordinary lines, so plotting, triggers,
+  logging and publishing all work on them. `write NAME VALUE` writes back. Problems are
+  reported once as `modbus:` lines, and **Show frames** shows the raw bytes.
+- **Send files with XMODEM and YMODEM** — in the Flash tool window, over an open Serial or
+  Network connection: XMODEM (CRC or checksum), XMODEM-1K and YMODEM, with progress and
+  cancel. Sending only.
+- **Bluetooth LE transport** — connect to boards with a serial-over-Bluetooth service:
+  Nordic UART, HM-10 style modules, Microchip Transparent UART, u-blox SPS, or any
+  service with a notifying and a writable characteristic. **↻** scans, serial devices
+  first. Needs `bleak`.
+- **MQTT transport** — use a broker as a source:
+  `mqtt://host/sensors/#?tx=commands/device`. Each message is a `topic: payload` line, so
+  triggers, parsing, logging and Quick Plot work as usual. TLS with `mqtts://`; passwords
+  are asked for once per run and never saved. Needs `paho-mqtt`.
+- **Publish to MQTT** — in the Data Logger: send a connection's parsed values and trigger
+  events to a broker for Grafana, Home Assistant or Node-RED. Off at every start.
 - **Controls** — a tool window for your own buttons, toggles, sliders and number
   boxes that send commands to the active connection (`SET PWM={value}`). Buttons
   and toggles can have function keys (F1–F3, F6–F12) and appear in the command
@@ -56,6 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (freeze the view while data keeps recording; pan/zoom freely) and **Y lock**.
 
 ### Fixed
+- **File → Load triggers** raised an error after loading: the rules were active but the
+  list didn't show them, Analytics didn't list them, and the notice about Python rules
+  being loaded disabled never appeared.
+- Trigger names were almost invisible in the Light theme, and their type tags and hit
+  counts in the Dark theme.
 - A chart channel's legend entry was placed between the PNG and CSV buttons.
 - The font −/+ buttons in the `⋯` popover showed no text.
 - The editable baud box took keyboard focus at startup.
