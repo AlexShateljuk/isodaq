@@ -23,6 +23,7 @@ from PyQt6.QtGui import QColor
 from core.data_parser import DataParser
 from core.logger import Logger
 from core.serial_reader import SerialReader
+from core.snapshot import SnapshotRecorder
 from core.triggers import TriggerEngine
 
 # Per-connection tint for tags / tabs, cycled as connections are added.
@@ -35,6 +36,8 @@ class Connection(QObject):
     The transport (reader) is attached later by the connection/serial layer;
     this object owns only what is safe to duplicate per device today."""
 
+    SHORT_NAME_MAX = 24
+
     def __init__(self, name: str = "Main", color: str | None = None, parent=None):
         super().__init__(parent)
         self.id: str = uuid.uuid4().hex[:8]
@@ -45,6 +48,10 @@ class Connection(QObject):
         self.parser = DataParser()
         self.engine = TriggerEngine()
         self.logger = Logger()
+        # Files of the lines around a trigger match (CMP21).
+        self.snapshots = SnapshotRecorder(lambda: self.logger.log_dir / "snapshots",
+                                          lambda: self.name)
+        self.engine.on_match(self.snapshots.on_match)
         self.last_parsed: dict[str, float] = {}
 
         # Transport: the active reader plus a per-kind cache (Serial/Network/SSH)
@@ -95,13 +102,24 @@ class Connection(QObject):
         # Build & flash (CMP12): the command running now, if any, and whether
         # to reconnect when it ends. The panel (UI layer) holds the command text.
         self.flash_runner = None
+        # Publishing this connection's data to a broker (CMP17), while switched on.
+        self.publisher = None
+        # A file being sent with XMODEM / YMODEM (CMP19): it has the port to itself.
+        self.transfer = None
+        # A command being repeated on a timer (CMP8), and this connection served
+        # as a raw TCP port (CMP22), while either is switched on.
+        self.repeat = None
+        self.port_share = None
         self.resume_after_flash: bool = False
 
     @property
     def short_name(self) -> str:
         """Compact tab label: drop URL schemes and /dev/ (full name in tooltip)."""
         n = self.name
-        for pre in ("socket://", "rfc2217://", "/dev/cu.", "/dev/tty.", "/dev/"):
+        for pre in ("socket://", "rfc2217://", "mqtt://", "mqtts://", "ble://", "modbus://",
+                    "/dev/cu.", "/dev/tty.", "/dev/"):
             if n.startswith(pre):
-                return n[len(pre):]
-        return n
+                n = n[len(pre):]
+                break
+        # A URL with topic filters can be any length; the tooltip has it in full.
+        return n if len(n) <= self.SHORT_NAME_MAX else n[:self.SHORT_NAME_MAX - 1] + "…"

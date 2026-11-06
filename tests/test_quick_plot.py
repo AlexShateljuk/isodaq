@@ -18,6 +18,7 @@ from core.quick_plot import keepable_key, quick_parse
     (">temp:1627551892437:21.5", {"temp": 21.5}),
     (">temp:21.5§°C", {"temp": 21.5}),
     (">temp:1:2;3:4", {"temp": 4.0}),
+    ("sensors/temp: 21.5", {"sensors/temp": 21.5}),
 ])
 def test_data_lines(line, expected):
     assert quick_parse(line) == expected

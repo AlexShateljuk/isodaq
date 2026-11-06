@@ -6,6 +6,7 @@ Supported trigger types (set via prefix in the text field):
   Brownout Detector               ← [contains] default, case-insensitive
   [regex]  hard fault|HardFault
   [python] lambda line: 'err' in line.lower() and int(line.split('=')[1]) > 100
+  [checksum] xor8                 ← a line ending in *HH whose checksum is wrong
 
 Each trigger can fire any combination of actions:
   action_flash  — highlight line in terminal
@@ -16,6 +17,7 @@ Each trigger can fire any combination of actions:
   reply         — send a reply to the device (auto-response, CMP7); regex
                   groups are substituted: \1 … \9, \g<name>; escapes \r \n
                   \t \0 \xHH \\
+  snapshot      — save the lines around the match to a file (CMP21)
 """
 from __future__ import annotations
 
@@ -25,20 +27,24 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
+from core.checksum import ALGORITHMS, star_mismatch
+from core.snapshot import clamp_lines
+
 
 @dataclass
 class Trigger:
     """One match rule + the actions to fire when a serial line matches it.
 
     ``type`` selects the matcher: ``contains`` (case-insensitive substring),
-    ``regex``, or ``python`` (a ``lambda line: ...`` predicate). Python triggers
+    ``regex``, ``checksum`` (the pattern names an algorithm; matches a line whose
+    ``*HH`` ending is wrong) or ``python`` (a ``lambda line: ...`` predicate). Python triggers
     execute code, so one loaded from an untrusted source is held ``_blocked``
     (never ``eval()``'d) until :meth:`trust` is called. See SECURITY.md.
     """
 
     name:    str
     pattern: str
-    type:    str  = "contains"   # contains | regex | python
+    type:    str  = "contains"   # contains | regex | checksum | python
     enabled: bool = True
     color:   str  = "#ef4444"
 
@@ -56,6 +62,13 @@ class Trigger:
     # Auto-response (CMP7): sent to the device on a match, plus the command
     # bar's line ending. Empty = no reply.
     reply: str = ""
+
+    # Snapshot (CMP21): the lines around the match, saved to a file and, if
+    # snapshot_notify is on, sent to notify_url as well.
+    snapshot:        bool = False
+    snapshot_before: int  = 100
+    snapshot_after:  int  = 50
+    snapshot_notify: bool = False
 
     hit_count: int = 0
 
@@ -77,6 +90,9 @@ class Trigger:
         try:
             if self.type == "regex":
                 self._compiled = re.compile(self.pattern, re.IGNORECASE)
+            elif self.type == "checksum":
+                if self.pattern.strip().lower() not in ALGORITHMS:
+                    return "Unknown checksum. Use one of: " + ", ".join(ALGORITHMS)
             elif self.type == "python":
                 if self._blocked:
                     return "Blocked: untrusted Python trigger (not enabled)"
@@ -98,6 +114,8 @@ class Trigger:
                 if self._compiled is None:
                     self._compiled = re.compile(self.pattern, re.IGNORECASE)
                 return bool(self._compiled.search(line))
+            elif self.type == "checksum":
+                return star_mismatch(self.pattern.strip().lower(), line)
             elif self.type == "python":
                 if self._blocked:
                     return False
@@ -209,6 +227,10 @@ class TriggerEngine:
                 "notify_url":     t.notify_url,
                 "notify_tg_chat": t.notify_tg_chat,
                 "reply":          t.reply,
+                "snapshot":        t.snapshot,
+                "snapshot_before": t.snapshot_before,
+                "snapshot_after":  t.snapshot_after,
+                "snapshot_notify": t.snapshot_notify,
             } for t in self._triggers]
 
     @staticmethod
@@ -235,6 +257,10 @@ class TriggerEngine:
                 notify_url=d.get("notify_url",""),
                 notify_tg_chat=d.get("notify_tg_chat",""),
                 reply=d.get("reply",""),
+                snapshot=bool(d.get("snapshot",False)),
+                snapshot_before=clamp_lines(d.get("snapshot_before"), 100),
+                snapshot_after=clamp_lines(d.get("snapshot_after"), 50),
+                snapshot_notify=bool(d.get("snapshot_notify",False)),
             )
             if t.type == "python" and not allow_python:
                 t._blocked = True
@@ -281,9 +307,10 @@ def parse_trigger_line(text: str) -> tuple[str, str]:
     """
     '[regex] pattern'   → ('regex',   'pattern')
     '[python] lambda …' → ('python',  'lambda …')
+    '[checksum] xor8'   → ('checksum','xor8')
     'plain text'        → ('contains','plain text')
     """
-    for t in ("contains", "regex", "python"):
+    for t in ("contains", "regex", "checksum", "python"):
         if text.strip().lower().startswith(f"[{t}]"):
             return t, text.strip()[len(t)+2:].strip()
     return "contains", text.strip()

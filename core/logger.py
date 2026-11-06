@@ -238,6 +238,8 @@ class Logger:
     def set_prefix(self, v: str):      self._prefix   = v.strip() or "log_session"
     def set_format(self, v: str):      self._fmt      = v.lower()
     def set_log_dir(self, v: str):     self._log_dir  = Path(v)
+    @property
+    def log_dir(self) -> Path:         return self._log_dir
     def set_use_file(self, v: bool):   self._use_file = v
     def set_use_db(self, v: bool):     self._use_db   = v
 

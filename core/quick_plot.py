@@ -10,6 +10,7 @@ channel having been set up:
   >temp:21.5                → temp=21.5                 (Teleplot)
   >temp:1627551892437:21.5  → temp=21.5                 (Teleplot, own timestamp)
   >temp:21.5§°C             → temp=21.5                 (Teleplot unit)
+  sensors/temp: 21.5        → sensors/temp=21.5         (MQTT messages)
 
 Deliberately strict: the *whole* line must be data, so ordinary log lines
 ("Free heap: 12345 bytes", "I (123) wifi: connected") are never plotted.
@@ -25,10 +26,10 @@ MAX_VALUES = 16
 _NUM = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
 _NUMBERS_ONLY = re.compile(rf"\s*{_NUM}(?:\s*[,;\t ]\s*{_NUM})*\s*[,;]?\s*")
 _NUM_TOKEN = re.compile(_NUM)
-_PAIR = re.compile(rf"([A-Za-z_][\w.\-]*)[:=]({_NUM})[A-Za-z%°/]*")
+_PAIR = re.compile(rf"([A-Za-z_][\w.\-/]*)[:=]({_NUM})[A-Za-z%°/]*")
 _PAIR_SEP = re.compile(r"\s*([:=])\s*")
 # Cheap gate: the first token must already be a pair (rejects log lines fast).
-_FIRST_PAIR = re.compile(rf"\s*[A-Za-z_][\w.\-]*\s*[:=]\s*{_NUM}[A-Za-z%°/]*(?:[,;\s|]|$)")
+_FIRST_PAIR = re.compile(rf"\s*[A-Za-z_][\w.\-/]*\s*[:=]\s*{_NUM}[A-Za-z%°/]*(?:[,;\s|]|$)")
 _SPLIT = re.compile(r"[,;\s|]+")
 _TELEPLOT_POINT = re.compile(rf"(?:{_NUM}:)?({_NUM})")
 _DATA_START = frozenset("+-.0123456789")

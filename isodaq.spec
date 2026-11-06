@@ -26,6 +26,27 @@ try:
 except ImportError:
     pass
 
+# MQTT and Bluetooth, guarded like SSH. bleak picks its backend at runtime and each
+# one sits on platform packages that static analysis can't see.
+_wireless_hidden = []
+try:
+    import paho.mqtt.client  # noqa: F401
+    _wireless_hidden += ["paho.mqtt.client"]
+except ImportError:
+    pass
+try:
+    import bleak  # noqa: F401
+    from PyInstaller.utils.hooks import collect_submodules
+    _wireless_hidden += collect_submodules("bleak")
+    if sys.platform == "darwin":
+        _wireless_hidden += ["objc", "Foundation", "CoreBluetooth", "libdispatch"]
+    elif sys.platform == "win32":
+        _wireless_hidden += collect_submodules("winrt")
+    else:
+        _wireless_hidden += collect_submodules("dbus_fast")
+except ImportError:
+    pass
+
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(ROOT)],
@@ -55,7 +76,7 @@ a = Analysis(
         "serial.urlhandler.protocol_rfc2217",
         "serial.urlhandler.protocol_loop",
         "serial.rfc2217",
-    ] + _ssh_hidden,
+    ] + _ssh_hidden + _wireless_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -115,6 +136,9 @@ if sys.platform == "darwin":
         bundle_identifier="com.esomtech.isodaq-studio",
         info_plist={
             "NSHighResolutionCapable": True,
+            # macOS kills an app that touches Bluetooth without this.
+            "NSBluetoothAlwaysUsageDescription":
+                "IsoDAQ Studio connects to the Bluetooth serial devices you choose.",
             "CFBundleShortVersionString": "0.4.0",
         },
     )

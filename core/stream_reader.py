@@ -23,6 +23,7 @@ Two open strategies are supported:
 """
 from __future__ import annotations
 
+import threading
 import time
 from datetime import datetime
 
@@ -128,6 +129,8 @@ class StreamReader(QThread):
     #: stream megabytes with no newline; unbounded, that one line grew without
     #: limit and was pushed into the terminal in one go.
     MAX_LINE_BYTES = 4096
+    #: Bytes from the device can be passed on as they are (see core.port_share).
+    shareable = True
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -141,6 +144,11 @@ class StreamReader(QThread):
         #: pyserial asserts both by default; ``None`` leaves the driver default.
         self.dtr: bool | None = None
         self.rts: bool | None = None
+        # File transfers need the port to themselves (see acquire_port).
+        self._hold = threading.Event()
+        self._held = threading.Event()
+        #: Called with each chunk read from the device, on the reader thread.
+        self.tap = None
 
     # ── To implement in subclasses ────────────────────────────────────────────
 
@@ -184,6 +192,8 @@ class StreamReader(QThread):
 
     def send(self, data: bytes) -> str | None:
         """Send raw bytes. Returns an error string, or ``None`` on success."""
+        if self._hold.is_set():
+            return "A file transfer is using this connection"
         if self._serial is None or not getattr(self._serial, "is_open", False):
             return "Not connected"
         try:
@@ -191,6 +201,27 @@ class StreamReader(QThread):
             return None
         except Exception as e:
             return str(e)
+
+    # ── Exclusive use of the port (file transfers) ────────────────────────────
+
+    def acquire_port(self, timeout: float = 2.0) -> bool:
+        """Park the read loop so another thread can talk to the port directly.
+        Whatever arrives until :meth:`release_port` isn't shown or logged."""
+        self._hold.set()
+        if self.isRunning() and self._held.wait(timeout):
+            return True
+        self.release_port()
+        return False
+
+    def release_port(self) -> None:
+        self._held.clear()
+        self._hold.clear()
+
+    def port_read(self, n: int) -> bytes:
+        return self._serial.read(n)
+
+    def port_write(self, data: bytes) -> None:
+        self._serial.write(data)
 
     # ── Modem-control lines (CMP2) ───────────────────────────────────────────
 
@@ -270,6 +301,10 @@ class StreamReader(QThread):
         lines = LineSplitter(self.MAX_LINE_BYTES)
 
         while self._running:
+            if self._hold.is_set():
+                self._held.set()
+                time.sleep(0.005)
+                continue
             try:
                 waiting = self._serial.in_waiting
                 chunk = self._serial.read(waiting if waiting > 0 else 1)
@@ -277,6 +312,8 @@ class StreamReader(QThread):
                 self.error_occurred.emit(str(e))
                 break
 
+            if chunk and self.tap is not None:
+                self.tap(chunk)
             deliver(self, lines.feed(chunk))
             deliver(self, lines.flush_if_idle(self.PARTIAL_FLUSH_TIMEOUT))
 
