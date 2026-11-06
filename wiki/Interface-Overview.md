@@ -22,7 +22,7 @@ across the top and a status bar across the bottom.
 |------|--------------|
 | **Left** | **Devices** (all connections and their state) · **Parsing** · **Macros** · **Custom command** |
 | **Right** | **Graphs** · **Indicators** · **Controls** |
-| **Bottom** | **Events** · **Analytics** · **Triggers** · **Data Logger** · **Flash** · **Modbus** |
+| **Bottom** | **Events** · **Analytics** · **Triggers** · **Data Logger** · **Flash** · **Modbus** · **Binary frames** |
 
 - Click a name on a stripe to open that tool window; click it again (or the `×`
   in the tool window's header) to collapse it back to the stripe.

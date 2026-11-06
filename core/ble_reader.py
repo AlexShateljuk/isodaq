@@ -17,7 +17,7 @@ import re
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from core.stream_reader import LineSplitter, StreamReader, deliver
+from core.stream_reader import LineSplitter, StreamReader, deliver, receive
 
 MISSING_BLEAK = ("Bluetooth needs the 'bleak' package.\n"
                  "  Install it:  pip install bleak")
@@ -116,6 +116,7 @@ class BLEReader(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.tap = None            # see StreamReader.tap
+        self.frame_decoder = None  # see StreamReader.frame_decoder
         self._running = False
         self._disconnected_emitted = False
         self.lost = False
@@ -247,4 +248,4 @@ class BLEReader(QThread):
         chunk = bytes(data)
         if self.tap is not None:
             self.tap(chunk)
-        deliver(self, self._splitter.feed(chunk))
+        receive(self, self._splitter, chunk)

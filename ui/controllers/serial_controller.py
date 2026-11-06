@@ -89,6 +89,7 @@ class SerialController(QObject):
                 r.values_read.connect(conn.modbus.update_values)
                 r.status.connect(conn.modbus.status.setText)
             conn.readers[kind] = r
+            self.sync_frames(conn)
         return r
 
     def toggle_connection(self) -> None:
@@ -213,6 +214,12 @@ class SerialController(QObject):
             reader.set_points(conn.modbus.points())
             reader.poll_ms = conn.modbus.poll.value()
             reader.show_frames = conn.modbus.frames.isChecked()
+
+    def sync_frames(self, conn) -> None:
+        """Hand the panel's binary frame decoder to the connection's readers."""
+        for reader in conn.readers.values():
+            if hasattr(reader, "frame_decoder"):
+                reader.frame_decoder = conn.frames.decoder
 
     def _configure_mqtt(self, reader) -> bool:
         """Check the URL and get a password if the broker URL names a user. The
@@ -364,6 +371,9 @@ class SerialController(QObject):
             mw._log("SYS", f"Connected: {label}", _win.C_OK, conn=conn)
         if isinstance(conn.reader, SerialReader):
             conn.usb_id = SerialReader.usb_id(port) or conn.usb_id
+        if conn.frames.decoder is not None and not hasattr(conn.reader, "frame_decoder"):
+            mw._log("SYS", tr("Binary frames are only decoded on Serial, Network and "
+                              "Bluetooth connections."), _win.C_SYS, conn=conn)
         conn.failed = False
         conn.session_sec = 0
         conn.name = port                       # tab reflects what it's attached to

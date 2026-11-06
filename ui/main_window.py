@@ -83,6 +83,7 @@ from ui.number_box import NumberBox
 from core.periodic import PeriodicSender
 from ui.flash_panel import FlashPanel
 from ui.modbus_panel import ModbusPanel
+from ui.frame_panel import FramePanel
 from ui.control_panel import ControlPanel
 from core.controls import FREE_KEYS
 
@@ -637,6 +638,7 @@ class MainWindow(QMainWindow):
                              (self._logger_stack, conn.logger_panel),
                              (self._flash_stack, conn.flash_panel),
                              (self._modbus_stack, conn.modbus),
+                             (self._frames_stack, conn.frames),
                              (self._events_stack, conn.events),
                              (self._analytics_stack, conn.analytics)):
             stack.removeWidget(panel)
@@ -664,6 +666,7 @@ class MainWindow(QMainWindow):
         self._parse_stack.setCurrentWidget(conn.parse)
         self._flash_stack.setCurrentWidget(conn.flash_panel)
         self._modbus_stack.setCurrentWidget(conn.modbus)
+        self._frames_stack.setCurrentWidget(conn.frames)
         self._trigger_stack.setCurrentWidget(conn.trigger)
         self._logger_stack.setCurrentWidget(conn.logger_panel)
         self._events_stack.setCurrentWidget(conn.events)
@@ -1143,6 +1146,7 @@ class MainWindow(QMainWindow):
         ("logger",    "bottom", "Data Logger"),
         ("flash",     "bottom", "Flash"),
         ("modbus",    "bottom", "Modbus"),
+        ("frames",    "bottom", "Binary frames"),
     )
 
     def _populate_tool_windows(self) -> None:
@@ -1158,6 +1162,7 @@ class MainWindow(QMainWindow):
         self._parse_stack     = QStackedWidget()
         self._flash_stack     = QStackedWidget()
         self._modbus_stack    = QStackedWidget()
+        self._frames_stack    = QStackedWidget()
 
         self._macro_panel = MacroPanel(self._macro_runner)
         self._control_panel = ControlPanel(self._serial.send_bytes)
@@ -1173,6 +1178,7 @@ class MainWindow(QMainWindow):
             "custom":     self._build_custom_cmd(),
             "flash":      self._flash_stack,
             "modbus":     self._modbus_stack,
+            "frames":     self._frames_stack,
             "graphs":     self._chart_stack,
             "indicators": self._indicator_stack,
             "controls":   self._control_panel,
@@ -1268,6 +1274,14 @@ class MainWindow(QMainWindow):
                      lambda: self._active_conn.modbus.export_file(), None, "iconAct"),
                 _btn(tr("+ Add"), tr("Add a register"),
                      lambda: self._active_conn.modbus.add_point()),
+            ],
+            "frames": [
+                _btn(tr("Import"), tr("Load a frame layout from a file"),
+                     lambda: self._active_conn.frames.import_file(), None, "iconAct"),
+                _btn(tr("Export"), tr("Save the frame layout to a file"),
+                     lambda: self._active_conn.frames.export_file(), None, "iconAct"),
+                _btn(tr("+ Add"), tr("Add a field"),
+                     lambda: self._active_conn.frames.add_field()),
             ],
             "parsing": [
                 _btn(tr("+ Add"), tr("Add a channel"),
@@ -1395,6 +1409,9 @@ class MainWindow(QMainWindow):
         conn.modbus = ModbusPanel()
         self._modbus_stack.addWidget(conn.modbus)
         conn.modbus.changed.connect(lambda c=conn: self._serial.sync_modbus(c))
+        conn.frames = FramePanel()
+        self._frames_stack.addWidget(conn.frames)
+        conn.frames.changed.connect(lambda c=conn: self._serial.sync_frames(c))
         conn.events.jump_to_line.connect(self._search.jump_to_line)
         conn.events.set_embedded(True)       # dock header already titles it
         conn.events.count_changed.connect(
@@ -1691,7 +1708,7 @@ class MainWindow(QMainWindow):
         while q and q[0][2] < cutoff:
             line, ts, _arrival, raw = q.popleft()
             conn.hex_offset += len(raw)   # keep HEX offsets true to the stream
-            conn.rx_bytes += len(line.encode())
+            conn.rx_bytes += len(raw)
             conn.rx_lines += 1
             conn.logger.write_line(line, ts)
             conn.snapshots.feed(line, ts)
@@ -1707,7 +1724,8 @@ class MainWindow(QMainWindow):
         land in a later step — for now the active engine runs."""
         is_active = conn is self._active_conn
 
-        conn.rx_bytes += len(line.encode())
+        # What came over the wire, which for a binary frame isn't what is shown.
+        conn.rx_bytes += len(raw) if raw is not None else len(line.encode())
         conn.rx_lines += 1
 
         # Log (non-blocking — goes to queue)

@@ -125,6 +125,7 @@ class SettingsManager(QObject):
         # The address only: publishing is never switched on by itself at startup.
         mw._active_conn.logger_panel.mqtt_url.setText(str(data.get("mqtt_publish_url", "")))
         mw._active_conn.modbus.from_dict(data.get("modbus", {}))
+        mw._active_conn.frames.from_dict(data.get("frames"))
         mw._active_conn.flash_panel.set_transfer_config(str(data.get("transfer_mode", "")),
                                                         str(data.get("transfer_path", "")))
         mw._active_conn.flash_panel.set_config(str(data.get("flash_command", "")),
@@ -207,6 +208,7 @@ class SettingsManager(QObject):
                 "channels":   mw._parser.to_dict_list(),
                 "mqtt_publish_url": mw._active_conn.logger_panel.mqtt_url.text().strip(),
                 "modbus":        mw._active_conn.modbus.to_dict(),
+                "frames":        mw._active_conn.frames.to_dict(),
                 "modbus_target": mw._modbus_target if mw._target_kind != "Modbus"
                                  else mw._port_combo.currentText().strip(),
                 "transfer_mode": mw._active_conn.flash_panel.transfer_mode(),

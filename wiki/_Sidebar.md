@@ -14,6 +14,7 @@
 
 **Working with data**
 - [Data Parser](Data-Parser)
+- [Binary Frames](Binary-Frames)
 - [Live Views](Live-Views)
 - [Data Logger](Data-Logger)
 

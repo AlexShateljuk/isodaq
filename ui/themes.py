@@ -327,6 +327,9 @@ QPushButton#frameBtn::menu-indicator {{ image: none; width: 0; }}
 QWidget[dock="true"] QPushButton {{ padding: 3px 9px; font-size: 11px; }}
 QWidget[dock="true"] QComboBox {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
 QWidget[dock="true"] QLineEdit {{ padding: 2px 6px; min-height: 20px; font-size: 11px; }}
+QWidget[dock="true"] QSpinBox, QWidget[dock="true"] QDoubleSpinBox {{
+    padding: 2px 6px; min-height: 20px; font-size: 11px;
+}}
 QWidget[dock="true"] QCheckBox {{ font-size: 11px; }}
 QWidget[dock="true"] QLabel {{ font-size: 11px; }}
 QWidget[dock="true"] QTableWidget {{ font-size: 11px; }}

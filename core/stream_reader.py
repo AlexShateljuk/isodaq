@@ -110,6 +110,38 @@ def deliver(reader, raw_lines: list[bytes]) -> None:
             reader.line_received.emit(text, t)
 
 
+def receive(reader, splitter: LineSplitter, chunk: bytes) -> None:
+    """Pass on bytes from the device: as lines, or through the connection's binary
+    frame decoder if it has one (see core.binary_frames). Whatever isn't a frame
+    still goes out as lines, so a boot log stays readable."""
+    decoder = reader.frame_decoder
+    if decoder is None:
+        deliver(reader, splitter.feed(chunk))
+        return
+    batch: list = []
+
+    def send_batch() -> None:
+        if batch:
+            reader.lines_received.emit(list(batch))
+            if reader.receivers(reader.line_received) > 0:
+                for text, t, *_ in batch:
+                    reader.line_received.emit(text, t)
+            batch.clear()
+
+    ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    mono = time.monotonic()
+    for item in decoder.feed(chunk):
+        if isinstance(item, bytes):
+            send_batch()
+            deliver(reader, splitter.feed(item))
+            continue
+        lines, raw = item
+        for line in lines:
+            batch.append((line, ts, mono, raw))
+            raw = b""
+    send_batch()
+
+
 class StreamReader(QThread):
     """Base reader thread for serial-like byte streams. Not used directly —
     see :class:`~core.serial_reader.SerialReader` and
@@ -149,6 +181,8 @@ class StreamReader(QThread):
         self._held = threading.Event()
         #: Called with each chunk read from the device, on the reader thread.
         self.tap = None
+        #: Turns the bytes into channels instead of lines (see core.binary_frames).
+        self.frame_decoder = None
 
     # ── To implement in subclasses ────────────────────────────────────────────
 
@@ -314,7 +348,7 @@ class StreamReader(QThread):
 
             if chunk and self.tap is not None:
                 self.tap(chunk)
-            deliver(self, lines.feed(chunk))
+            receive(self, lines, chunk)
             deliver(self, lines.flush_if_idle(self.PARTIAL_FLUSH_TIMEOUT))
 
         # ── Abnormal exit (I/O exception or remote close) ─────────────────────

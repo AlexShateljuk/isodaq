@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Binary frames** — a tool window that decodes packed binary from a device into named
+  values: header, length, `u8` to `f64` fields with a scale, checksum and tail, in either
+  byte order, with presets for VOFA+ JustFloat and SerialPlot. Each frame becomes a
+  `name:value` line, so plotting, triggers and logging work on it, and text such as a boot log
+  stays readable between frames. Paste a frame to try a layout without a device.
 - **Hex commands and checksums** — a button by **Send** switches the command field to hex
   bytes (`01 03 00 00 00 02`) and appends a checksum: Sum-8, XOR-8, LRC-8, CRC-8,
   CRC-8/Maxim, CRC-16 (Modbus, CCITT, XMODEM) or CRC-32, as raw bytes in either order, as
@@ -89,6 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chart view controls** — the Graphs footer gets a time-window selector
   (10 s … 15 min, All), buffer size (2k – 500k points per channel), **Pause**
   (freeze the view while data keeps recording; pan/zoom freely) and **Y lock**.
+
+### Changed
+- The RX counter now counts bytes on the wire, including line endings, rather than the text
+  shown.
 
 ### Fixed
 - **File → Load triggers** raised an error after loading: the rules were active but the
