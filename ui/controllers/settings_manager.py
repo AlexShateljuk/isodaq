@@ -58,6 +58,7 @@ class SettingsManager(QObject):
         mw._net_url = str(data.get("net_url", ""))
         mw._ble_target = str(data.get("ble_target", ""))
         mw._mqtt_url = str(data.get("mqtt_url", ""))
+        mw._agent_url = str(data.get("agent_url", ""))
         mw._modbus_target = str(data.get("modbus_target", ""))
 
         sessions = data.get("ssh_sessions")
@@ -175,6 +176,8 @@ class SettingsManager(QObject):
                 "ble_target":   mw._ble_target if mw._target_kind != "BLE"
                                 else mw._port_combo.currentText().strip(),
                 "mqtt_url":     mw._mqtt_url if mw._target_kind != "MQTT"
+                                else mw._port_combo.currentText().strip(),
+                "agent_url":    mw._agent_url if mw._target_kind != "Agent"
                                 else mw._port_combo.currentText().strip(),
                 # Saved SSH sessions — passwords are deliberately never persisted.
                 "ssh_sessions": [{

@@ -78,6 +78,7 @@ from ui.controllers.trigger_controller import TriggerController
 from ui.controllers.flash_controller import FlashController
 from ui.controllers.transfer_controller import TransferController
 from ui.controllers.tcp_share_controller import TcpShareController
+from ui.controllers.agent_controller import AgentController
 from ui.controllers.capture_controller import CaptureController
 from ui.frame_button import FrameButton
 from ui.number_box import NumberBox
@@ -209,6 +210,7 @@ class MainWindow(QMainWindow):
         self._net_url: str = ""               # last-used network target (socket://… / rfc2217://…)
         self._ble_target: str = ""            # last-used Bluetooth device ("Name [address]")
         self._mqtt_url: str = ""              # last-used broker (mqtt://host/topic/#?tx=…)
+        self._agent_url: str = ""             # last-used agent port (agent://host/dev/ttyUSB0)
         self._modbus_target: str = ""         # last-used Modbus device (serial port or tcp://…)
         self._target_kind: str = "Serial"     # transport the target field is showing
         self._port_options_menu = None        # built lazily by _open_port_options
@@ -240,6 +242,7 @@ class MainWindow(QMainWindow):
         self._transfer = TransferController(self)
         self._tcp_share = TcpShareController(self)
         self._capture = CaptureController(self)
+        self._agents = AgentController(self)
 
         self._build_ui()
         self._connect_signals()
@@ -451,6 +454,10 @@ class MainWindow(QMainWindow):
                                    triggered=lambda: self._show_tool("flash")))
         device_m.addAction(QAction(tr("Share port over TCP…"), self,
                                    triggered=lambda: self._tcp_share.open_dialog()))
+        device_m.addAction(QAction(tr("Remote agents…"), self,
+                                   triggered=lambda: self._agents.open_dialog()))
+        device_m.addAction(QAction(tr("Pair with agent…"), self,
+                                   triggered=lambda: self._agents.pair_dialog()))
         device_m.addAction(QAction(tr("Capture raw bytes to file (start / stop)…"), self,
                                    triggered=lambda: self._capture.toggle()))
 
@@ -776,7 +783,8 @@ class MainWindow(QMainWindow):
         lay.setSpacing(4)
 
         self._transport_combo = QComboBox()
-        self._transport_combo.addItems(["Serial", "Network", "SSH", "BLE", "MQTT", "Modbus"])
+        self._transport_combo.addItems(["Serial", "Network", "Agent", "SSH", "BLE", "MQTT",
+                                        "Modbus"])
         self._transport_combo.setFixedWidth(108)   # fits "Network" in the mono font
         self._transport_combo.setToolTip(
             tr("Transport: local serial, TCP/RFC2217 network, SSH, Bluetooth LE, MQTT or Modbus"))
@@ -986,7 +994,8 @@ class MainWindow(QMainWindow):
         return line
 
     #: Transports whose target is typed: where the text is kept between switches.
-    _TYPED_TARGETS = {"Network": "_net_url", "BLE": "_ble_target", "MQTT": "_mqtt_url",
+    _TYPED_TARGETS = {"Network": "_net_url", "Agent": "_agent_url", "BLE": "_ble_target",
+                      "MQTT": "_mqtt_url",
                       "Modbus": "_modbus_target"}
 
     def _on_transport_changed(self, kind: str) -> None:
@@ -1012,6 +1021,16 @@ class MainWindow(QMainWindow):
             combo.setEditText(self._net_url)
             self._refresh_btn.setEnabled(False)
             self._refresh_btn.setText("↻")
+        elif kind == "Agent":
+            combo.setEditable(True)
+            combo.clear()
+            combo.lineEdit().setPlaceholderText(
+                tr("agent://raspberrypi.local/dev/ttyUSB0   ·   ↻ lists paired agents' ports"))
+            self._agents.populate_combo()
+            combo.setEditText(self._agent_url)
+            self._refresh_btn.setEnabled(True)
+            self._refresh_btn.setText("↻")
+            self._refresh_btn.setToolTip(tr("List the ports of paired agents"))
         elif kind == "MQTT":
             combo.setEditable(True)
             combo.clear()
@@ -1057,6 +1076,8 @@ class MainWindow(QMainWindow):
             self._serial.edit_ssh_session(new=False)
         elif kind == "BLE":
             self._serial.scan_ble()
+        elif kind == "Agent":
+            self._agents.scan()
         elif kind == "Modbus":
             self._serial.populate_modbus_combo(self._port_combo.currentText().strip())
         else:
@@ -1544,6 +1565,8 @@ class MainWindow(QMainWindow):
                     lambda: self._serial.reset_board("esp_boot")),
             Command(tr("Send BREAK"), tr("Device"), self._serial.send_break),
             Command(tr("Share port over TCP…"), tr("Device"), self._tcp_share.open_dialog),
+            Command(tr("Remote agents…"), tr("Device"), self._agents.open_dialog),
+            Command(tr("Pair with agent…"), tr("Device"), lambda: self._agents.pair_dialog()),
             Command(tr("Capture raw bytes to file (start / stop)…"), tr("Device"),
                     self._capture.toggle),
             Command(tr("Repeat custom command (start / stop)"), tr("Device"),

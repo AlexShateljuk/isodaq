@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Remote serial ports (Agent transport)** — run `isodaq-agent` on a Raspberry Pi, or any
+  computer the boards are plugged into, and use its serial ports from IsoDAQ as if they
+  were local: terminal, plots, triggers, DTR/RTS reset, file transfer and auto-reconnect,
+  including when a board is plugged back in on the Pi. Pair once with a one-time code;
+  the link is encrypted and the agent's certificate is remembered. The agent only accepts
+  local-network and VPN addresses and only opens serial ports.
 - **Chart views** — a **View** choice in the Graphs footer. **Separate rows** gives each channel
   its own Y axis on a shared time axis, so rpm no longer flattens current, and **Normalised**
   overlays channels, each scaled to its own range. There are also **X against Y**, **Spectrum**,

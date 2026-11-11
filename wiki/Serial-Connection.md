@@ -7,9 +7,9 @@ connection (the selected [connection tab](Multiple-Connections)).
 
 | Control | Options | Notes |
 |---------|---------|-------|
-| **Transport** | Serial · Network · SSH · BLE · MQTT · [Modbus](Modbus) | what kind of source this connection reads |
+| **Transport** | Serial · Network · [Agent](#agent-a-port-on-a-raspberry-pi) · SSH · BLE · MQTT · [Modbus](Modbus) | what kind of source this connection reads |
 | **Port / target** | serial ports · a URL · a saved SSH session | see the transports below |
-| **↻** | — | rescan serial ports or scan for Bluetooth devices (in SSH mode it becomes **✎** to edit the session) |
+| **↻** | — | rescan serial ports, list paired agents' ports, or scan for Bluetooth devices (in SSH mode it becomes **✎** to edit the session) |
 | **Baud** | 9600 … 74880 · 115200 … 921600 · 1000000 · 2000000 — or **type any rate** | must match your firmware; custom rates need driver support (real USB adapters have it, virtual ports often don't) |
 | **Connect** | — | toggles to **Disconnect** once open |
 | **`⋯`** | Data (8N1 · 8E1 · 8O1 · 7N1), Flow (None · RTS/CTS · XON/XOFF), **Lines** (DTR · RTS · BREAK), **Reset** (Board · DTR pulse · Bootloader), **Auto-reconnect**, Timestamp / HEX / Autoscroll / Echo, font size, Clear | set-once options |
@@ -38,6 +38,56 @@ Type a URL into the target field:
 
 The connection opens on the reader thread, so an unreachable host never freezes
 the window.
+
+### Agent: a port on a Raspberry Pi
+
+A serial port on another computer, usually a Raspberry Pi next to the boards, through
+`isodaq-agent`. Everything works as with a local port: terminal, triggers, plots, binary
+frames, capture, DTR/RTS/BREAK and the reset buttons, file transfer and auto-reconnect.
+
+**On the Pi**, with Python 3.9 or later:
+
+```bash
+pip install pyserial cryptography
+# copy the isodaq_agent folder from this repository, then:
+python3 -m isodaq_agent serve
+```
+
+The first time, it prints an address and a one-time pairing code:
+
+```
+Pair IsoDAQ with this agent: Device → Pair with agent…, address 192.168.1.40:7780,
+code  K7QM-2XRA   (valid 10 minutes, 5 tries)
+Agent fingerprint 9F3A 1C77 E2B0 4D18 A6C5 F0E9 B2D4 7A31
+```
+
+`python3 -m isodaq_agent pair` makes a new code, also while the agent runs.
+
+**In IsoDAQ:** Device → **Pair with agent…**, enter the address and the code. Then pick
+the **Agent** transport and press **↻**: the ports of every paired agent are listed, such
+as `agent://lab-pi.local/dev/ttyUSB0   lab-pi  CP2102 USB to UART`. You can also type a
+target: `agent://host[:port]/device`, or `agent://pc/COM5` for a Windows machine. Typing
+the address of an agent you haven't paired with opens the pairing dialog.
+Device → **Remote agents…** lists the paired agents and forgets one.
+
+**Security.** The connection is encrypted (TLS). Pairing never sends the code; it proves
+knowledge of it, tied to the agent's certificate, so a machine in between can't use it.
+After pairing, IsoDAQ only talks to an agent with the same certificate. If the
+certificate changes, IsoDAQ refuses and says so: forget the agent and pair again if it
+was reinstalled. The agent accepts clients from local networks and VPN addresses only.
+To reach it from elsewhere, use WireGuard or Tailscale rather than opening a router port.
+IsoDAQ keeps each agent's token in `~/.isodaq_studio/agents.json`, readable only by
+you. `python3 -m isodaq_agent clients` lists the paired computers;
+`python3 -m isodaq_agent revoke NAME` removes one.
+
+**Which ports.** The agent serves only the ports the OS lists as serial ports. Add stable
+names with `--allow`: `serve --allow '/dev/serial/by-id/*'` keeps a board's name the same
+when it is plugged back in, so auto-reconnect finds it again. A port is open for one
+client at a time; the port list shows who has it.
+
+**Other options:** `--port` (default 7780), `--name` (shown in IsoDAQ, default the host
+name), `--config` (default `~/.config/isodaq-agent`). DTR/RTS reset sequences cross the
+network, so their timing can vary by a few milliseconds.
 
 ### SSH
 
@@ -147,8 +197,8 @@ successful connect.
 | **DTR pulse** | DTR off 100 ms → on | Arduino Uno / Nano / Mega (reset through the DTR capacitor) |
 | **Bootloader** | esptool's sequence: hold GPIO0 low (DTR) while pulsing EN (RTS) | ESP chips — enter the ROM bootloader |
 
-Afterwards the lines return to the DTR/RTS checkboxes. Network (`rfc2217://`)
-connections forward the lines; raw `socket://` and SSH can't, and say so.
+Afterwards the lines return to the DTR/RTS checkboxes. Network (`rfc2217://`) and
+Agent connections forward the lines; raw `socket://` and SSH can't, and say so.
 
 Need more than one device? Click **`+`** next to the tabs — see
 [Multiple Connections](Multiple-Connections).

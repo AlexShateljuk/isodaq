@@ -22,6 +22,7 @@ from core.i18n import tr
 from core.modbus_reader import ModbusReader
 from core.mqtt_publisher import MqttPublisher
 from core.mqtt_reader import MQTTReader, parse_mqtt_url
+from core.agent_reader import AgentReader
 from core.net_reader import NetworkReader
 from core.periodic import PeriodicSender
 from core.serial_reader import SerialReader
@@ -82,8 +83,9 @@ class SerialController(QObject):
         conn = self._mw._active_conn
         r = conn.readers.get(kind)
         if r is None:
-            r = {"Network": NetworkReader, "SSH": SSHReader, "BLE": BLEReader,
-                 "MQTT": MQTTReader, "Modbus": ModbusReader}.get(kind, SerialReader)(conn)
+            r = {"Network": NetworkReader, "Agent": AgentReader, "SSH": SSHReader,
+                 "BLE": BLEReader, "MQTT": MQTTReader,
+                 "Modbus": ModbusReader}.get(kind, SerialReader)(conn)
             self.wire_reader(conn, r)
             if kind == "Modbus":
                 r.values_read.connect(conn.modbus.update_values)
@@ -145,6 +147,20 @@ class SerialController(QObject):
             reader.configure(url=url, baud=baud,
                              bytesize=bytesize, parity=parity, stopbits=stopbits,
                              flow=mw._flow_combo.currentText())
+        elif kind == "Agent":
+            url = mw._port_combo.currentText().strip()
+            try:
+                reader.configure(url=url, baud=baud, bytesize=bytesize, parity=parity,
+                                 stopbits=stopbits, flow=mw._flow_combo.currentText())
+            except ValueError as e:
+                mw._log("ERR", str(e), _win.C_ERR)
+                return
+            mw._agent_url = url
+            host, port, _ = reader._target
+            if reader.store.get(host, port) is None:
+                # First time with this agent: pair, then connect.
+                mw._agents.pair_dialog(f"{host}:{port}", then_connect=True)
+                return
         elif kind == "SSH":
             if not mw._ssh_params.get("host"):
                 if not self.edit_ssh_session(new=True):
@@ -372,7 +388,7 @@ class SerialController(QObject):
         if isinstance(conn.reader, SerialReader):
             conn.usb_id = SerialReader.usb_id(port) or conn.usb_id
         if conn.frames.decoder is not None and not hasattr(conn.reader, "frame_decoder"):
-            mw._log("SYS", tr("Binary frames are only decoded on Serial, Network and "
+            mw._log("SYS", tr("Binary frames are only decoded on Serial, Network, Agent and "
                               "Bluetooth connections."), _win.C_SYS, conn=conn)
         conn.failed = False
         conn.session_sec = 0
@@ -469,6 +485,10 @@ class SerialController(QObject):
             conn.reconnect_tries += 1
             r = conn.reader
             if r.isRunning():                # attempt still in progress
+                continue
+            if getattr(r, "fatal", ""):      # e.g. the agent no longer knows us
+                self._mw._log("ERR", r.fatal, _win.C_ERR, conn=conn)
+                self.stop_reconnect(conn)
                 continue
             if isinstance(r, SerialReader):
                 port = SerialReader.find_port(r._port, conn.usb_id)
