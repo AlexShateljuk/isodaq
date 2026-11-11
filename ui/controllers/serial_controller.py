@@ -398,6 +398,7 @@ class SerialController(QObject):
             return
         mw._log("SYS", "Disconnected.", _win.C_SYS, conn=conn)
         mw._tcp_share.on_link_closed(conn)
+        mw._capture.on_link_closed(conn)
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
             mw._conn_btn.setText(tr("Connect"))
@@ -454,6 +455,7 @@ class SerialController(QObject):
         if not quiet:
             mw._log("SYS", "Auto-reconnect stopped.", _win.C_SYS, conn=conn)
         mw._tcp_share.on_link_closed(conn)
+        mw._capture.on_link_closed(conn)
         mw._update_conn_tab(conn)
         if conn is mw._active_conn:
             mw._refresh_conn_state()
@@ -769,7 +771,7 @@ class SerialController(QObject):
             mw._log("ERR", err, _win.C_ERR, conn=conn)
             return err
         conn.tx_bytes += len(data)
-        mw._log("TX", shown, _win.C_TX, conn=conn)
+        mw._log("TX", shown, _win.C_TX, conn=conn, raw=data)
         if conn is mw._active_conn:
             mw._sb_tx.setText(f"TX: {mw._fmt_bytes(conn.tx_bytes)}")
             mw._session.feed_line(shown, "tx")

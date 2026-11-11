@@ -78,6 +78,7 @@ from ui.controllers.trigger_controller import TriggerController
 from ui.controllers.flash_controller import FlashController
 from ui.controllers.transfer_controller import TransferController
 from ui.controllers.tcp_share_controller import TcpShareController
+from ui.controllers.capture_controller import CaptureController
 from ui.frame_button import FrameButton
 from ui.number_box import NumberBox
 from core.periodic import PeriodicSender
@@ -238,6 +239,7 @@ class MainWindow(QMainWindow):
         self._flash = FlashController(self)
         self._transfer = TransferController(self)
         self._tcp_share = TcpShareController(self)
+        self._capture = CaptureController(self)
 
         self._build_ui()
         self._connect_signals()
@@ -449,6 +451,8 @@ class MainWindow(QMainWindow):
                                    triggered=lambda: self._show_tool("flash")))
         device_m.addAction(QAction(tr("Share port over TCP…"), self,
                                    triggered=lambda: self._tcp_share.open_dialog()))
+        device_m.addAction(QAction(tr("Capture raw bytes to file (start / stop)…"), self,
+                                   triggered=lambda: self._capture.toggle()))
 
         view_m = mb.addMenu(tr("View"))
         view_m.addAction(QAction(tr("Command Palette…"), self, shortcut="Ctrl+Shift+P",
@@ -619,6 +623,7 @@ class MainWindow(QMainWindow):
         self._serial.set_publishing(conn, False)
         self._serial.stop_repeat(conn)
         self._tcp_share.stop(conn)
+        self._capture.stop(conn)
         conn.snapshots.flush()
         self._serial.stop_reconnect(conn, quiet=True)
         for r in conn.readers.values():
@@ -1504,6 +1509,9 @@ class MainWindow(QMainWindow):
         if share is not None:
             parts.append(tr("TCP :{port} ({n} connected)").format(
                 port=share.port, n=share.client_count))
+        if conn.capture is not None:
+            parts.append(tr("Capturing {name}: {size}").format(
+                name=conn.capture.path.name, size=self._fmt_bytes(conn.capture.size)))
         self._sb_activity.setText("  ·  ".join(parts))
         self._sb_activity.setVisible(bool(parts))
 
@@ -1536,6 +1544,8 @@ class MainWindow(QMainWindow):
                     lambda: self._serial.reset_board("esp_boot")),
             Command(tr("Send BREAK"), tr("Device"), self._serial.send_break),
             Command(tr("Share port over TCP…"), tr("Device"), self._tcp_share.open_dialog),
+            Command(tr("Capture raw bytes to file (start / stop)…"), tr("Device"),
+                    self._capture.toggle),
             Command(tr("Repeat custom command (start / stop)"), tr("Device"),
                     self._serial.toggle_repeat),
             Command(f"DTR  ({on_off(self._chk_dtr)})", tr("Device"), self._chk_dtr.toggle),
@@ -1933,9 +1943,13 @@ class MainWindow(QMainWindow):
         if direction == "RX":
             conn.last_rx_line_id = conn.line_seq
         offset = -1
-        if raw is not None:   # received bytes: remember their stream offset (HEX view)
-            offset = conn.hex_offset
-            conn.hex_offset += len(raw)
+        if raw is not None:   # remember the bytes' stream offset (HEX view)
+            if direction == "TX":
+                offset = conn.tx_hex_offset
+                conn.tx_hex_offset += len(raw)
+            else:
+                offset = conn.hex_offset
+                conn.hex_offset += len(raw)
             # Decide the view on arrival, not at paint time — toggling HEX must
             # not re-format lines still waiting for the next batched paint.
             if not self._chk_hex.isChecked():
@@ -2010,7 +2024,7 @@ class MainWindow(QMainWindow):
             if ts:
                 cursor.insertText(f"{ts}  ", dim_fmt)
             cursor.insertText(f"{direction:<3}  ", fmt(color, bold=True))
-            if raw:   # received while the HEX view was on
+            if raw:   # sent or received while the HEX view was on
                 self._insert_hex(cursor, raw, offset, " " * (len(ts) + 7 if ts else 5),
                                  dim_fmt, fg_fmt, fmt(color))
                 cursor.block().setUserState(seq)
@@ -2131,6 +2145,7 @@ class MainWindow(QMainWindow):
             self._serial.set_publishing(conn, False)
             self._serial.stop_repeat(conn)
             self._tcp_share.stop(conn)
+            self._capture.stop(conn)
             conn.snapshots.flush()
             conn.reconnecting = False
             for r in conn.readers.values():

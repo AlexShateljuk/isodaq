@@ -47,6 +47,32 @@ Lines that are **only data** are plotted straight away — no channel to set up:
 - **Auto** in the footer turns Quick Plot off (and removes its series) or back
   on. Up to 16 series are added automatically.
 
+### Views
+
+**View** in the footer changes how the channels are shown. Your choice is remembered.
+
+| View | Good for |
+|------|----------|
+| **Over time** | All channels on one Y axis. The default |
+| **Separate rows** | Channels of very different sizes, such as rpm and current: each gets its own row and Y axis, on a shared time axis |
+| **Normalised** | Comparing shapes and timing: channels overlaid, each scaled to what it does in the time window. The axis reads min, mid and max |
+| **X against Y** | One channel against another, such as voltage against current. **Same scale** gives both axes the same scale, for a track such as longitude against latitude. There is no background map |
+| **Spectrum** | Finding a frequency in a channel, with the peak named above the plot |
+| **Histogram** | How a channel's values are spread, with the mean and spread |
+| **Bars** | Every channel's latest value, side by side |
+| **Gauges** | A dial per channel. Its range is what that channel has done in the time window, so it needs no setting up |
+| **Compass** | A channel in degrees, clockwise from north |
+
+Hover over a plot over time for a crosshair that lists each channel's nearest value. In
+Normalised these are still the real values. Pause (❚❚) to pan and zoom; rows zoom in time
+together, and going live again returns to auto-scale unless **Y🔒** is on.
+
+**Spectrum and timing:** the chart stamps samples when they are processed, not when the device
+took them, and they often arrive in batches. So Spectrum takes the average sample rate over the
+samples shown and treats them as evenly spaced. That is right for a device sending at a steady
+rate, but not if it sends in bursts or changes rate, and it can read a little off until there
+are a few seconds of data.
+
 ## Indicators
 
 ![Indicators tab](https://raw.githubusercontent.com/AlexShateljuk/isodaq/master/docs/images/tab-indicators.png)

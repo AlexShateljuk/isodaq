@@ -104,6 +104,8 @@ protocols, or when you suspect non-printable characters:
 - The **offset** is the running byte count of this connection, so it matches the
   position in the stream (and in a flash image you read out).
 - **Every byte is shown**, including the CR/LF line endings and empty lines.
+- What you send shows the same way, on `TX` lines with its own offsets. Data from
+  [TCP clients](Serial-Connection#sharing-a-port-over-tcp) stays as text.
 - The setting applies to data **as it arrives** — lines already on screen keep
   their format when you switch.
 - It only changes the display: the [Data Parser](Data-Parser), [Triggers](Triggers)
@@ -112,6 +114,15 @@ protocols, or when you suspect non-printable characters:
   wrap.
 
 In text mode, control characters (NUL, BEL, …) are shown as `·`.
+
+### Saving the raw bytes
+
+**Device → Capture raw bytes to file (start / stop)…** saves exactly what the device sends, from
+when you start until you stop, with nothing added: for a flash dump, or for checking output in
+another tool. The status bar shows the file and its size. It carries on through an automatic
+reconnect or a flash, and ends when you disconnect. Serial, Network, SSH and Bluetooth
+connections can be captured. If the disk fills up, the capture stops and says so, and the
+connection carries on.
 
 ## Under heavy load
 

@@ -90,6 +90,7 @@ class Connection(QObject):
         self.rx_backlog: deque = deque()
         self.rx_shed: int = 0
         self.hex_offset: int = 0       # bytes received so far (HEX view offsets)
+        self.tx_hex_offset: int = 0    # … and sent, which count separately
 
         # Auto-reconnect (CMP1): set while waiting for a lost link to come back.
         # ``usb_id`` is the (vid, pid, serial) of the serial port at connect, so
@@ -110,6 +111,7 @@ class Connection(QObject):
         # as a raw TCP port (CMP22), while either is switched on.
         self.repeat = None
         self.port_share = None
+        self.capture = None             # raw bytes going to a file (F11)
         self.resume_after_flash: bool = False
 
     @property

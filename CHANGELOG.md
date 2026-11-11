@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Chart views** — a **View** choice in the Graphs footer. **Separate rows** gives each channel
+  its own Y axis on a shared time axis, so rpm no longer flattens current, and **Normalised**
+  overlays channels, each scaled to its own range. There are also **X against Y**, **Spectrum**,
+  **Histogram**, **Bars**, **Gauges** and **Compass**.
+- **Crosshair** — hover over a plot to read every channel's nearest value.
+- **Sent bytes in the HEX view** — commands, controls and trigger replies show as a hex dump
+  when the HEX view is on, with their own offsets.
+- **Capture raw bytes to a file** — Device → Capture raw bytes saves exactly what a device
+  sends between start and stop, for flash dumps.
 - **Binary frames** — a tool window that decodes packed binary from a device into named
   values: header, length, `u8` to `f64` fields with a scale, checksum and tail, in either
   byte order, with presets for VOFA+ JustFloat and SerialPlot. Each frame becomes a

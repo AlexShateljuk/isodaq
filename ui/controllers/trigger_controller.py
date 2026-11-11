@@ -143,7 +143,7 @@ class TriggerController(QObject):
         if conn is mw._active_conn:
             mw._sb_tx.setText(f"TX: {mw._fmt_bytes(conn.tx_bytes)}")
         shown = reply.rstrip(b"\r\n").decode("utf-8", errors="replace")
-        mw._log("TX", f"↩ {shown}{_note}   [{trigger.name}]", _win.C_TX, conn=conn)
+        mw._log("TX", f"↩ {shown}{_note}   [{trigger.name}]", _win.C_TX, conn=conn, raw=data)
 
     def sync_analytics(self, conn=None) -> None:
         conn = conn or self._mw._active_conn

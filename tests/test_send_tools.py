@@ -477,7 +477,7 @@ def test_share_ends_with_the_connection(linked, qapp):
     port = conn.port_share.port
     win._serial.toggle_connection()
     pump(qapp, 0.3)
-    assert conn.port_share is None and conn.reader.tap is None
+    assert conn.port_share is None and conn.reader.taps == ()
     assert not win._sb_activity.isVisibleTo(win)
     assert "TCP sharing stopped" in terminal(win)
     with pytest.raises(OSError):
@@ -659,3 +659,190 @@ def test_a_loaded_file_cant_switch_on_sending_snapshots(qapp, window, tmp_path, 
     trigger = win._engine.get_triggers()[0]
     assert trigger.snapshot and not trigger.snapshot_notify
     assert "switched off" in terminal(win)
+
+
+# ── Sent bytes in the HEX view, and raw capture (F11) ─────────────────────────
+
+def test_sent_bytes_show_as_hex_in_the_hex_view(linked, qapp):
+    win, board = linked
+    win._eol_combo.setCurrentText("\\r\\n")
+    win._chk_hex.setChecked(True)
+    type_and_send(win, "AT")
+    text = terminal(win)
+    assert "00000000  41 54 0D 0A" in text and "|AT..|" in text
+    type_and_send(win, "OK")
+    assert "00000004  4F 4B 0D 0A" in terminal(win)      # offsets carry on
+
+
+def test_sent_and_received_offsets_are_separate(linked, qapp):
+    win, board = linked
+    win._eol_combo.setCurrentText("None")
+    win._chk_hex.setChecked(True)
+    board.send(b"RXRXRXRX\n")
+    pump(qapp, 0.3)
+    type_and_send(win, "T")
+    text = terminal(win)
+    assert "00000000  54" in text
+    assert win._active_conn.hex_offset == 9 and win._active_conn.tx_hex_offset == 1
+
+
+def test_sent_bytes_are_text_with_the_hex_view_off(linked, qapp):
+    win, board = linked
+    type_and_send(win, "AT")
+    assert "AT" in terminal(win) and "00000000" not in terminal(win)
+
+
+def test_trigger_replies_show_as_hex_too(linked, qapp):
+    from core.triggers import Trigger
+    win, board = linked
+    win._eol_combo.setCurrentText("None")
+    win._active_conn.engine.add_trigger(Trigger("r", "PING", reply="PONG", action_flash=False))
+    win._chk_hex.setChecked(True)
+    board.send(b"PING\r\n")
+    pump(qapp, 0.3)
+    assert "50 4F 4E 47" in terminal(win)
+
+
+def test_capture_saves_every_byte_exactly(linked, qapp, tmp_path):
+    win, board = linked
+    conn = win._active_conn
+    out = tmp_path / "dump.bin"
+    assert win._capture.start(conn, str(out)) is None
+    assert "Capturing dump.bin" in win._sb_activity.text()
+    blob = bytes(range(256)) * 400
+    board.send(blob)
+    pump(qapp, 0.6)
+    win._capture.stop(conn)
+    assert out.read_bytes() == blob
+    assert f"Saved {len(blob):,} bytes" in terminal(win)
+    assert conn.capture is None and conn.reader.taps == ()
+    assert not win._sb_activity.isVisibleTo(win)
+
+
+def test_capture_only_has_what_came_while_it_ran(linked, qapp, tmp_path):
+    win, board = linked
+    conn = win._active_conn
+    out = tmp_path / "range.bin"
+    board.send(b"before\n")
+    pump(qapp, 0.3)
+    win._capture.start(conn, str(out))
+    board.send(b"during\n")
+    pump(qapp, 0.3)
+    win._capture.stop(conn)
+    board.send(b"after\n")
+    pump(qapp, 0.3)
+    assert out.read_bytes() == b"during\n"
+
+
+def test_capture_and_tcp_share_run_together(linked, qapp, tmp_path):
+    win, board = linked
+    conn = win._active_conn
+    out = tmp_path / "both.bin"
+    assert win._tcp_share.start(conn, "127.0.0.1", 0) is None
+    assert win._capture.start(conn, str(out)) is None
+    c = share_client(conn.port_share)
+    pump(qapp, 0.1)
+    board.send(b"to both\n")
+    assert read_n(c, 8) == b"to both\n"
+    win._tcp_share.stop(conn)
+    board.send(b"still\n")
+    pump(qapp, 0.3)
+    win._capture.stop(conn)
+    assert out.read_bytes() == b"to both\nstill\n"
+    c.close()
+
+
+def test_capture_ends_with_the_connection_and_keeps_what_it_had(linked, qapp, tmp_path):
+    win, board = linked
+    conn = win._active_conn
+    out = tmp_path / "ended.bin"
+    win._capture.start(conn, str(out))
+    board.send(b"kept\n")
+    pump(qapp, 0.3)
+    win._serial.toggle_connection()
+    pump(qapp, 0.3)
+    assert conn.capture is None and out.read_bytes() == b"kept\n"
+    assert "the connection closed" in terminal(win)
+
+
+def test_capture_lives_through_an_automatic_reconnect(qapp, window, tmp_path):
+    win = window
+    link = tmp_path / "ttyCAP"
+    board = Board(link)
+    _select(win, link)
+    conn = win._active_conn
+    win._serial.toggle_connection()
+    pump(qapp, 0.2)
+    out = tmp_path / "across.bin"
+    win._capture.start(conn, str(out))
+    board.send(b"one\n")
+    pump(qapp, 0.3)
+    board.unplug()
+    pump(qapp, 1.3)
+    assert conn.reconnecting and conn.capture is not None
+    board = Board(link)
+    pump(qapp, 1.5)
+    board.send(b"two\n")
+    pump(qapp, 0.3)
+    win._capture.stop(conn)
+    assert out.read_bytes() == b"one\ntwo\n"
+    win._serial.toggle_connection()
+    pump(qapp, 0.2)
+    board.unplug()
+
+
+def test_capture_refused_when_it_cant_run(qapp, window, tmp_path):
+    from core.modbus_reader import ModbusReader
+    win = window
+    conn = win._active_conn
+    assert "Connect" in win._capture.start(conn, str(tmp_path / "x.bin"))
+    assert not (tmp_path / "x.bin").exists()         # nothing left behind
+    conn.reader = ModbusReader()
+    conn.reader.isRunning = lambda: True
+    assert "byte streams" in win._capture.start(conn, str(tmp_path / "x.bin"))
+    conn.reader = conn.readers["Serial"]
+
+
+def test_capture_to_a_bad_path_says_so(linked, qapp, tmp_path):
+    win, _board = linked
+    err = win._capture.start(win._active_conn, str(tmp_path / "no" / "such" / "dir" / "x.bin"))
+    assert "Could not open" in err and win._active_conn.capture is None
+
+
+def test_toggle_asks_where_then_stops(linked, qapp, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QFileDialog
+    win, _board = linked
+    out = tmp_path / "picked.bin"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *_a, **_k: ("", "")))
+    win._capture.toggle()                            # cancelled
+    assert win._active_conn.capture is None
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *_a, **_k: (str(out), "")))
+    win._capture.toggle()
+    assert win._active_conn.capture is not None
+    win._capture.toggle()
+    assert win._active_conn.capture is None and out.exists()
+
+
+def test_a_full_disk_stops_the_capture_and_is_reported(linked, qapp, tmp_path):
+    win, board = linked
+    conn = win._active_conn
+    win._capture.start(conn, str(tmp_path / "full.bin"))
+    capture = conn.capture
+
+    class Full:
+        def write(self, _data):
+            raise OSError("No space left on device")
+
+        def close(self):
+            pass
+
+    capture._file.close()
+    capture._file = Full()
+    board.send(b"data\n")
+    pump(qapp, 0.9)                                  # the half-second check
+    assert conn.capture is None
+    assert "No space left" in terminal(win)
+    assert conn.reader.isRunning()                   # the connection itself carries on
+    board.send(b"more\n")
+    pump(qapp, 0.3)
+    assert "more" in terminal(win)

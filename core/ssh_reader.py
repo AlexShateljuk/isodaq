@@ -47,7 +47,7 @@ class SSHReader(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.tap = None            # see StreamReader.tap
+        self.taps: tuple = ()      # see StreamReader.taps
         self._running = False
         self._disconnected_emitted = False
         self.lost = False          # link dropped after connecting (see StreamReader)
@@ -177,15 +177,15 @@ class SSHReader(QThread):
                     data = chan.recv(65536)
                     if data == b"":
                         break            # remote closed stdout
-                    if self.tap is not None:
-                        self.tap(data)
+                    for tap in self.taps:
+                        tap(data)
                     deliver(self, lines.feed(data))
                     got = True
                 if chan.recv_stderr_ready():
                     err = chan.recv_stderr(65536)
                     if err:
-                        if self.tap is not None:
-                            self.tap(err)
+                        for tap in self.taps:
+                            tap(err)
                         deliver(self, lines.feed(err))
                         got = True
                 if chan.exit_status_ready() and not chan.recv_ready():

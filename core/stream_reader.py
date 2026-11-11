@@ -110,6 +110,17 @@ def deliver(reader, raw_lines: list[bytes]) -> None:
             reader.line_received.emit(text, t)
 
 
+def add_tap(reader, tap) -> None:
+    """Have *tap* called with the raw bytes. A new tuple each time, because the reader
+    thread is going through the old one."""
+    reader.taps = (*reader.taps, tap)
+
+
+def remove_tap(reader, tap) -> None:
+    if hasattr(reader, "taps"):
+        reader.taps = tuple(t for t in reader.taps if t != tap)
+
+
 def receive(reader, splitter: LineSplitter, chunk: bytes) -> None:
     """Pass on bytes from the device: as lines, or through the connection's binary
     frame decoder if it has one (see core.binary_frames). Whatever isn't a frame
@@ -180,7 +191,7 @@ class StreamReader(QThread):
         self._hold = threading.Event()
         self._held = threading.Event()
         #: Called with each chunk read from the device, on the reader thread.
-        self.tap = None
+        self.taps: tuple = ()
         #: Turns the bytes into channels instead of lines (see core.binary_frames).
         self.frame_decoder = None
 
@@ -346,8 +357,9 @@ class StreamReader(QThread):
                 self.error_occurred.emit(str(e))
                 break
 
-            if chunk and self.tap is not None:
-                self.tap(chunk)
+            if chunk:
+                for tap in self.taps:
+                    tap(chunk)
             receive(self, lines, chunk)
             deliver(self, lines.flush_if_idle(self.PARTIAL_FLUSH_TIMEOUT))
 

@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 import ui.main_window as _win   # for theme-updated colour globals (runtime access only)
 from core.i18n import tr
 from core.port_share import ALL_HOSTS, DEFAULT_PORT, LOCAL_HOST, PortShare
-from core.stream_reader import _CONTROL_TO_DOT
+from core.stream_reader import _CONTROL_TO_DOT, add_tap, remove_tap
 from core.stun_helper import get_local_ip
 from ui.number_box import NumberBox
 
@@ -53,7 +53,7 @@ class TcpShareController(QObject):
         share.clients_changed.connect(self._on_clients, Qt.ConnectionType.QueuedConnection)
         share.client_dropped.connect(lambda label, c=conn: self._on_dropped(c, label),
                                      Qt.ConnectionType.QueuedConnection)
-        reader.tap = share.feed
+        add_tap(reader, share.feed)
         conn.port_share = share
         self.port = share.port
         self._timer.start()
@@ -68,8 +68,7 @@ class TcpShareController(QObject):
             return
         conn.port_share = None
         for reader in conn.readers.values():
-            if getattr(reader, "tap", None) == share.feed:
-                reader.tap = None
+            remove_tap(reader, share.feed)
         share.stop()
         self._flush_input(conn, share)
         share.deleteLater()

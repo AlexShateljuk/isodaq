@@ -115,7 +115,7 @@ class BLEReader(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.tap = None            # see StreamReader.tap
+        self.taps: tuple = ()      # see StreamReader.taps
         self.frame_decoder = None  # see StreamReader.frame_decoder
         self._running = False
         self._disconnected_emitted = False
@@ -246,6 +246,6 @@ class BLEReader(QThread):
 
     def _on_notify(self, _sender, data: bytearray) -> None:
         chunk = bytes(data)
-        if self.tap is not None:
-            self.tap(chunk)
+        for tap in self.taps:
+            tap(chunk)
         receive(self, self._splitter, chunk)
