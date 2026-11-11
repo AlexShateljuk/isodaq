@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including when a board is plugged back in on the Pi. Pair once with a one-time code;
   the link is encrypted and the agent's certificate is remembered. The agent only accepts
   local-network and VPN addresses and only opens serial ports.
+- **Set up a Raspberry Pi in one step** — Device → Set up a Raspberry Pi: enter the Pi's
+  address, user and password, and IsoDAQ installs the agent over SSH as a service that
+  starts at boot, pairs with it and lists its ports. The SSH host key is checked; the
+  password isn't saved. `packaging/agent/install.sh` does the same on the Pi itself.
 - **Chart views** — a **View** choice in the Graphs footer. **Separate rows** gives each channel
   its own Y axis on a shared time axis, so rpm no longer flattens current, and **Normalised**
   overlays channels, each scaled to its own range. There are also **X against Y**, **Spectrum**,

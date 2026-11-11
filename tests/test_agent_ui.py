@@ -239,3 +239,119 @@ def test_replug_on_the_agent_reconnects(qapp, window, paired, tmp_path):
         w._serial.toggle_connection()
         pump_until(qapp, lambda: not conn.reader.isRunning())
         second.unplug()
+
+
+def _local_pi(tmp_path, monkeypatch):
+    """SSH replaced by the local stand-in from test_agent_setup; after the real
+    installer runs, the installed agent is started the way systemd would."""
+    import re
+    import socket
+    import subprocess
+
+    from core import agent_setup
+    from test_agent_setup import FAKE_SUDO, LocalSession
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "sudo").write_text(FAKE_SUDO)
+    (bin_dir / "sudo").chmod(0o755)
+    home, root = tmp_path / "home", tmp_path / "root"
+    home.mkdir()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    seen, procs = {}, []
+
+    def session(host, port_, user, password, key_path, accept_key):
+        seen.update(host=host, user=user, accept_key=accept_key)
+        return LocalSession(home, root, bin_dir)
+    monkeypatch.setattr(agent_setup, "SSHSession", session)
+    real_install = agent_setup.install
+
+    def install(sess, agent_port, name, password, progress):
+        code, out = real_install(sess, agent_port, name, password, progress)
+        p = subprocess.Popen([str(root / "usr/local/bin/isodaq-agent"), "serve", "--host",
+                              "127.0.0.1", "--port", str(agent_port)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        procs.append(p)
+        assert re.match(r"[A-Z0-9]{4}-[A-Z0-9]{4}$", code)
+        return code, out
+    monkeypatch.setattr(agent_setup, "install", install)
+    return port, seen, procs
+
+
+def test_set_up_a_pi_in_one_step(qapp, window, store, tmp_path, monkeypatch):
+    from ui.controllers.agent_controller import SetupDialog
+    port, seen, procs = _local_pi(tmp_path, monkeypatch)
+    w = window
+    try:
+        dlg = SetupDialog(w._agents, w)
+        dlg.host.setText("127.0.0.1")
+        dlg.user.setText("pi")
+        dlg.password.setText("raspberry")
+        dlg.agent_port.setValue(port)
+        dlg._start("")
+        assert not dlg.go.isEnabled()
+        dlg.reject()                                   # can't close mid-install
+        assert "Still installing" in dlg.status.text()
+        assert pump_until(qapp, lambda: dlg.entry is not None, 30), dlg.status.text()
+        assert seen == {"host": "127.0.0.1", "user": "pi", "accept_key": ""}
+        assert store.get("127.0.0.1", port)["fingerprint"] == dlg.entry["fingerprint"]
+        assert pump_until(qapp, lambda: "Installed isodaq-agent" in w._terminal.toPlainText())
+        name, _ = ac.list_ports("127.0.0.1", port, store)
+        assert name                                    # paired and answering
+    finally:
+        for p in procs:
+            p.terminate()
+            p.wait(10)
+
+
+def test_set_up_a_pi_wrong_password(qapp, window, tmp_path, monkeypatch):
+    from ui.controllers.agent_controller import SetupDialog
+    port, _, procs = _local_pi(tmp_path, monkeypatch)
+    dlg = SetupDialog(window._agents, window)
+    dlg.host.setText("127.0.0.1")
+    dlg.user.setText("pi")
+    dlg.password.setText("wrong")
+    dlg.agent_port.setValue(port)
+    dlg._start("")
+    assert pump_until(qapp, lambda: dlg.go.isEnabled(), 30)
+    assert "password" in dlg.status.text() and dlg.entry is None
+    assert procs == []
+
+
+def test_set_up_asks_about_a_new_ssh_host(qapp, window, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+
+    from core import agent_setup
+    from ui.controllers.agent_controller import SetupDialog
+    tries = []
+
+    def session(host, port, user, password, key_path, accept_key):
+        tries.append(accept_key)
+        if not accept_key:
+            raise agent_setup.UnknownHostKey(host, "ssh-ed25519", "SHA256:abc")
+        raise agent_setup.SetupError("stop here")
+    monkeypatch.setattr(agent_setup, "SSHSession", session)
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.Yes)
+    dlg = SetupDialog(window._agents, window)
+    dlg.host.setText("lab-pi.local")
+    dlg._start("")
+    assert pump_until(qapp, lambda: len(tries) == 2 and dlg.go.isEnabled(), 10)
+    assert tries == ["", "SHA256:abc"]
+    assert "SHA256:abc" in asked[0] and "ssh_host_ed25519_key.pub" in asked[0]
+    assert "stop here" in dlg.status.text()
+
+
+def test_set_up_checks_fields_first(qapp, window):
+    from ui.controllers.agent_controller import SetupDialog
+    dlg = SetupDialog(window._agents, window)
+    dlg._start("")
+    assert "address" in dlg.status.text()
+    dlg.host.setText("pi")
+    dlg.more_btn.setChecked(True)
+    dlg.name.setText("lab pi")
+    dlg._start("")
+    assert "letters, digits" in dlg.status.text()
+    assert dlg.go.isEnabled()

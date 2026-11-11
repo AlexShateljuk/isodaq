@@ -33,7 +33,11 @@ def cmd_serve(args) -> int:
     server = AgentServer(_home(args), host=args.host, port=args.port, name=args.name,
                          extra_ports=tuple(args.allow or ()),
                          lan_only=not args.any_address)
-    if args.pair or not server.clients.names():
+    if server.pairing.pending() and not args.pair:
+        # Made by `isodaq-agent pair` (the installer does that right after starting
+        # the service): replacing it would make the code it printed useless.
+        print("A pairing code is waiting. 'isodaq-agent pair' makes a new one.", flush=True)
+    elif args.pair or not server.clients.names():
         code = server.pairing.new_code()
         print(_pair_message(code, server.fingerprint, args.port, args.host), flush=True)
     try:

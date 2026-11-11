@@ -454,6 +454,8 @@ class MainWindow(QMainWindow):
                                    triggered=lambda: self._show_tool("flash")))
         device_m.addAction(QAction(tr("Share port over TCP…"), self,
                                    triggered=lambda: self._tcp_share.open_dialog()))
+        device_m.addAction(QAction(tr("Set up a Raspberry Pi…"), self,
+                                   triggered=lambda: self._agents.setup_dialog()))
         device_m.addAction(QAction(tr("Remote agents…"), self,
                                    triggered=lambda: self._agents.open_dialog()))
         device_m.addAction(QAction(tr("Pair with agent…"), self,
@@ -1565,6 +1567,8 @@ class MainWindow(QMainWindow):
                     lambda: self._serial.reset_board("esp_boot")),
             Command(tr("Send BREAK"), tr("Device"), self._serial.send_break),
             Command(tr("Share port over TCP…"), tr("Device"), self._tcp_share.open_dialog),
+            Command(tr("Set up a Raspberry Pi…"), tr("Device"),
+                    lambda: self._agents.setup_dialog()),
             Command(tr("Remote agents…"), tr("Device"), self._agents.open_dialog),
             Command(tr("Pair with agent…"), tr("Device"), lambda: self._agents.pair_dialog()),
             Command(tr("Capture raw bytes to file (start / stop)…"), tr("Device"),

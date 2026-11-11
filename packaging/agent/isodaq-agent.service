@@ -1,0 +1,33 @@
+# isodaq-agent: serves this machine's serial ports to IsoDAQ. Installed by install.sh,
+# which fills in the @…@ values.
+[Unit]
+Description=isodaq-agent (serial ports for IsoDAQ)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=isodaq-agent
+Group=isodaq-agent
+SupplementaryGroups=dialout
+Environment=PYTHONPATH=@LIB@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PYTHON@ -m isodaq_agent --config @STATE@ @ARGS@
+Restart=on-failure
+RestartSec=3
+
+# It needs the serial devices and its own folder, nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=@STATE@
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

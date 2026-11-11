@@ -45,15 +45,32 @@ A serial port on another computer, usually a Raspberry Pi next to the boards, th
 `isodaq-agent`. Everything works as with a local port: terminal, triggers, plots, binary
 frames, capture, DTR/RTS/BREAK and the reset buttons, file transfer and auto-reconnect.
 
-**On the Pi**, with Python 3.9 or later:
+**Set it up from IsoDAQ (easiest).** Device → **Set up a Raspberry Pi…**: enter the
+Pi's address (such as `raspberrypi.local`), user and password, and press **Install and
+connect**. IsoDAQ connects over SSH, copies the agent, installs it as a service that
+starts at boot, pairs with it, and lists the Pi's ports. Nothing else is needed on the Pi
+beyond SSH (in Raspberry Pi Imager: *Enable SSH*). The password is used for this only and
+isn't saved. The first time, IsoDAQ shows the Pi's SSH key fingerprint to confirm, as
+`ssh` does; to be sure, compare it on the Pi with `ssh-keygen -lf
+/etc/ssh/ssh_host_ed25519_key.pub`. A key in `~/.ssh/known_hosts` that doesn't match is
+refused. Run it again to update the agent; pairings are kept.
+
+**Or install it on the Pi yourself,** from a copy of this repository:
 
 ```bash
-pip install pyserial cryptography
-# copy the isodaq_agent folder from this repository, then:
-python3 -m isodaq_agent serve
+sudo sh packaging/agent/install.sh              # --port, --name, --allow PATTERN
+sudo sh packaging/agent/install.sh --uninstall  # --purge also removes pairings
 ```
 
-The first time, it prints an address and a one-time pairing code:
+It installs `python3-serial` and `python3-cryptography` with apt if needed, copies the
+agent to `/opt/isodaq-agent`, adds the `isodaq-agent` command, creates the
+`isodaq-agent` user (in `dialout`) with its data in `/var/lib/isodaq-agent`, starts
+`isodaq-agent.service` and prints a pairing code. By default it also allows
+`/dev/serial/by-id/*`. Logs: `journalctl -u isodaq-agent`.
+
+Without the installer, on any computer with Python 3.8 or later, pyserial and
+cryptography: `python3 -m isodaq_agent serve`. The first time, it prints an address and
+a one-time pairing code:
 
 ```
 Pair IsoDAQ with this agent: Device → Pair with agent…, address 192.168.1.40:7780,
@@ -61,9 +78,10 @@ code  K7QM-2XRA   (valid 10 minutes, 5 tries)
 Agent fingerprint 9F3A 1C77 E2B0 4D18 A6C5 F0E9 B2D4 7A31
 ```
 
-`python3 -m isodaq_agent pair` makes a new code, also while the agent runs.
+`isodaq-agent pair` (or `python3 -m isodaq_agent pair`) makes a new code, also while the
+agent runs.
 
-**In IsoDAQ:** Device → **Pair with agent…**, enter the address and the code. Then pick
+**Pairing by hand:** Device → **Pair with agent…**, enter the address and the code. Then pick
 the **Agent** transport and press **↻**: the ports of every paired agent are listed, such
 as `agent://lab-pi.local/dev/ttyUSB0   lab-pi  CP2102 USB to UART`. You can also type a
 target: `agent://host[:port]/device`, or `agent://pc/COM5` for a Windows machine. Typing

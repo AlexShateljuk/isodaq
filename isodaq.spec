@@ -54,6 +54,11 @@ a = Analysis(
     datas=[
         # Ship the pre-generated SVG arrow assets used by themes.py
         (str(ROOT / "ui" / "resources"), "ui/resources"),
+        # The agent's source and installer, copied to a Raspberry Pi by
+        # Device → Set up a Raspberry Pi (core/agent_setup.py).
+        (str(ROOT / "isodaq_agent" / "*.py"), "isodaq_agent"),
+        (str(ROOT / "packaging" / "agent" / "install.sh"), "packaging/agent"),
+        (str(ROOT / "packaging" / "agent" / "isodaq-agent.service"), "packaging/agent"),
     ],
     hiddenimports=[
         # pyqtgraph pulls in these at runtime
